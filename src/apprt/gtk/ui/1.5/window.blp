@@ -1,4 +1,5 @@
 using Gtk 4.0;
+using Gdk 4.0;
 using Adw 1;
 
 template $GhosttyWindow: Adw.ApplicationWindow {
@@ -147,103 +148,162 @@ template $GhosttyWindow: Adw.ApplicationWindow {
         }
       }
 
-      Adw.OverlaySplitView sidebar_split {
-        // Vertical tab sidebar. Only shown when `gtk-tabs-location` is
-        // `left` or `right`; otherwise the content fills the window.
-        show-sidebar: bind template.sidebar-visible;
-        enable-show-gesture: false;
-        enable-hide-gesture: false;
-        min-sidebar-width: 160;
-        max-sidebar-width: 320;
-        sidebar-width-fraction: 0.2;
+      Gtk.Box sidebar_layout {
+        // Vertical tab sidebar layout: [sidebar][resize handle][content].
+        // For `gtk-tabs-location = right` the window code reverses the
+        // order. The sidebar is only shown when tabs are vertical.
+        orientation: horizontal;
 
-        sidebar: Gtk.Box {
-          styles [
-            "ghostty-tab-sidebar",
-          ]
+        Gtk.Revealer sidebar_revealer {
+          hexpand: false;
+          transition-type: slide_right;
+          transition-duration: 160;
+          reveal-child: bind template.sidebar-visible;
 
-          orientation: vertical;
+          child: Gtk.Box sidebar {
+            styles [
+              "ghostty-tab-sidebar",
+            ]
 
-          Gtk.ScrolledWindow {
-            vexpand: true;
-            hscrollbar-policy: never;
+            orientation: vertical;
+            hexpand: false;
 
-            Gtk.ListView sidebar_list {
+            Gtk.Box {
               styles [
-                "navigation-sidebar",
+                "sidebar-header",
               ]
 
-              // AdwTabView.pages is a GtkSelectionModel, so selecting a row
-              // selects that tab and vice versa.
-              model: bind tab_view.pages;
-              // Keep keyboard focus in the terminal after clicking a row.
+              orientation: horizontal;
+
+              Gtk.Label {
+                styles [
+                  "sidebar-heading",
+                ]
+
+                visible: bind template.sidebar-compact inverted;
+                label: _("Tabs");
+                xalign: 0;
+                hexpand: true;
+              }
+
+              Gtk.Button {
+                styles [
+                  "flat",
+                  "sidebar-collapse",
+                ]
+
+                hexpand: bind template.sidebar-compact;
+                halign: center;
+                icon-name: "sidebar-show-symbolic";
+                tooltip-text: _("Collapse Sidebar");
+                can-focus: false;
+                focus-on-click: false;
+                clicked => $cycle_sidebar();
+              }
+            }
+
+            Gtk.ScrolledWindow {
+              visible: bind template.sidebar-compact inverted;
+              vexpand: true;
+              hscrollbar-policy: never;
+
+              Gtk.ListView {
+                styles [
+                  "ghostty-tab-list",
+                ]
+
+                // AdwTabView.pages is a GtkSelectionModel, so selecting a
+                // row selects that tab and vice versa.
+                model: bind tab_view.pages;
+                // Keep keyboard focus in the terminal after clicking a row.
+                can-focus: false;
+                focus-on-click: false;
+
+                factory: Gtk.BuilderListItemFactory {
+                  template Gtk.ListItem {
+                    child: $GhosttyTabSidebarRow {
+                      page: bind template.item as <Adw.TabPage>;
+                      position: bind template.position;
+                    };
+                  }
+                };
+              }
+            }
+
+            Gtk.ScrolledWindow {
+              visible: bind template.sidebar-compact;
+              vexpand: true;
+              hscrollbar-policy: never;
+
+              Gtk.ListView {
+                styles [
+                  "ghostty-tab-list",
+                  "compact",
+                ]
+
+                model: bind tab_view.pages;
+                can-focus: false;
+                focus-on-click: false;
+
+                factory: Gtk.BuilderListItemFactory {
+                  template Gtk.ListItem {
+                    child: $GhosttyTabSidebarRow {
+                      compact: true;
+                      page: bind template.item as <Adw.TabPage>;
+                      position: bind template.position;
+                    };
+                  }
+                };
+              }
+            }
+
+            Gtk.Button {
+              styles [
+                "sidebar-new-tab",
+              ]
+
+              clicked => $new_tab();
+              tooltip-text: _("New Tab");
               can-focus: false;
               focus-on-click: false;
 
-              factory: Gtk.BuilderListItemFactory {
-                template Gtk.ListItem {
-                  child: Gtk.Box {
-                    orientation: horizontal;
-                    spacing: 6;
+              child: Gtk.Box {
+                orientation: horizontal;
+                spacing: 8;
+                halign: center;
 
-                    Gtk.Box {
-                      orientation: vertical;
-                      hexpand: true;
+                Gtk.Image {
+                  icon-name: "tab-new-symbolic";
+                }
 
-                      Gtk.Label {
-                        xalign: 0;
-                        ellipsize: end;
-                        label: bind template.item as <Adw.TabPage>.title;
-                        tooltip-text: bind template.item as <Adw.TabPage>.title;
-                      }
-
-                      Gtk.Label {
-                        styles [
-                          "caption",
-                          "dim-label",
-                        ]
-
-                        xalign: 0;
-                        ellipsize: start;
-                        label: bind template.item as <Adw.TabPage>.child as <$GhosttyTab>.active-surface as <$GhosttySurface>.pwd;
-                      }
-                    }
-
-                    Gtk.Image {
-                      styles [
-                        "accent",
-                      ]
-
-                      icon-name: "media-record-symbolic";
-                      pixel-size: 8;
-                      tooltip-text: _("Needs attention");
-                      visible: bind template.item as <Adw.TabPage>.needs-attention;
-                    }
-                  };
+                Gtk.Label {
+                  visible: bind template.sidebar-compact inverted;
+                  label: _("New Tab");
                 }
               };
             }
+          };
+        }
+
+        Gtk.Box sidebar_handle {
+          styles [
+            "sidebar-handle",
+          ]
+
+          visible: bind template.sidebar-resizable;
+          cursor: Gdk.Cursor {
+            name: "col-resize";
+          };
+
+          Gtk.GestureDrag {
+            drag-begin => $sidebar_drag_begin();
+            drag-update => $sidebar_drag_update();
           }
+        }
 
-          Gtk.Button {
-            styles [
-              "flat",
-            ]
-
-            clicked => $new_tab();
-            tooltip-text: _("New Tab");
-            can-focus: false;
-            focus-on-click: false;
-
-            child: Adw.ButtonContent {
-              icon-name: "tab-new-symbolic";
-              label: _("New Tab");
-            };
-          }
-        };
-
-        content: Box {
+        Gtk.Box sidebar_content {
           orientation: vertical;
+          hexpand: true;
 
           $GhosttyDebugWarning {
             visible: bind template.debug;
@@ -262,7 +322,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
               shortcuts: none;
             }
           }
-        };
+        }
       }
     }
   };
@@ -319,6 +379,70 @@ menu main_menu {
     item {
       label: _("Change Tab Title…");
       action: "win.prompt-tab-title";
+    }
+
+    submenu {
+      label: _("Tab Color");
+
+      item {
+        label: _("None");
+        action: "win.set-active-tab-color";
+        target: "none";
+      }
+
+      item {
+        label: _("Red");
+        action: "win.set-active-tab-color";
+        target: "red";
+      }
+
+      item {
+        label: _("Orange");
+        action: "win.set-active-tab-color";
+        target: "orange";
+      }
+
+      item {
+        label: _("Yellow");
+        action: "win.set-active-tab-color";
+        target: "yellow";
+      }
+
+      item {
+        label: _("Green");
+        action: "win.set-active-tab-color";
+        target: "green";
+      }
+
+      item {
+        label: _("Teal");
+        action: "win.set-active-tab-color";
+        target: "teal";
+      }
+
+      item {
+        label: _("Blue");
+        action: "win.set-active-tab-color";
+        target: "blue";
+      }
+
+      item {
+        label: _("Purple");
+        action: "win.set-active-tab-color";
+        target: "purple";
+      }
+
+      item {
+        label: _("Pink");
+        action: "win.set-active-tab-color";
+        target: "pink";
+      }
+
+      item {
+        label: _("Gray");
+        action: "win.set-active-tab-color";
+        target: "gray";
+      }
     }
 
     item {
@@ -378,6 +502,41 @@ menu main_menu {
 
   section {
     item {
+      label: _("Cycle Tab Sidebar");
+      action: "win.cycle-tab-sidebar";
+    }
+
+    submenu {
+      label: _("Sidebar Theme");
+
+      item {
+        label: _("Follow System");
+        action: "win.sidebar-theme";
+        target: "auto";
+      }
+
+      item {
+        label: _("Graphite");
+        action: "win.sidebar-theme";
+        target: "graphite";
+      }
+
+      item {
+        label: _("Charcoal");
+        action: "win.sidebar-theme";
+        target: "charcoal";
+      }
+
+      item {
+        label: _("Midnight");
+        action: "win.sidebar-theme";
+        target: "midnight";
+      }
+    }
+  }
+
+  section {
+    item {
       label: _("Command Palette");
       action: "win.toggle-command-palette";
     }
@@ -415,5 +574,69 @@ menu tab_context_menu {
   item {
     label: _("Change Tab Title…");
     action: "win.prompt-context-tab-title";
+  }
+
+  submenu {
+    label: _("Tab Color");
+
+    item {
+      label: _("None");
+      action: "win.set-tab-color";
+      target: "none";
+    }
+
+    item {
+      label: _("Red");
+      action: "win.set-tab-color";
+      target: "red";
+    }
+
+    item {
+      label: _("Orange");
+      action: "win.set-tab-color";
+      target: "orange";
+    }
+
+    item {
+      label: _("Yellow");
+      action: "win.set-tab-color";
+      target: "yellow";
+    }
+
+    item {
+      label: _("Green");
+      action: "win.set-tab-color";
+      target: "green";
+    }
+
+    item {
+      label: _("Teal");
+      action: "win.set-tab-color";
+      target: "teal";
+    }
+
+    item {
+      label: _("Blue");
+      action: "win.set-tab-color";
+      target: "blue";
+    }
+
+    item {
+      label: _("Purple");
+      action: "win.set-tab-color";
+      target: "purple";
+    }
+
+    item {
+      label: _("Pink");
+      action: "win.set-tab-color";
+      target: "pink";
+    }
+
+    item {
+      label: _("Gray");
+      action: "win.set-tab-color";
+      target: "gray";
+    }
   }
 }

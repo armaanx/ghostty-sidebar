@@ -26,6 +26,9 @@ const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseCo
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
 const Tab = @import("tab.zig").Tab;
+const TabSidebarRow = @import("tab_sidebar_row.zig").TabSidebarRow;
+const tab_sidebar_row = @import("tab_sidebar_row.zig");
+const SidebarTheme = configpkg.Config.GtkTabsSidebarTheme;
 const DebugWarning = @import("debug_warning.zig").DebugWarning;
 const CommandPalette = @import("command_palette.zig").CommandPalette;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
@@ -210,6 +213,36 @@ pub const Window = extern struct {
             );
         };
 
+        pub const @"sidebar-compact" = struct {
+            pub const name = "sidebar-compact";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(Self, bool, .{
+                        .getter = Self.getSidebarCompact,
+                    }),
+                },
+            );
+        };
+
+        pub const @"sidebar-resizable" = struct {
+            pub const name = "sidebar-resizable";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(Self, bool, .{
+                        .getter = Self.getSidebarResizable,
+                    }),
+                },
+            );
+        };
+
         pub const @"toolbar-style" = struct {
             pub const name = "toolbar-style";
             const impl = gobject.ext.defineProperty(
@@ -277,7 +310,25 @@ pub const Window = extern struct {
         tab_view: *adw.TabView,
         toolbar: *adw.ToolbarView,
         toast_overlay: *adw.ToastOverlay,
-        sidebar_split: *adw.OverlaySplitView,
+        sidebar_layout: *gtk.Box,
+        sidebar_revealer: *gtk.Revealer,
+        sidebar: *gtk.Box,
+        sidebar_handle: *gtk.Box,
+        sidebar_content: *gtk.Box,
+        tab_context_menu: *gio.MenuModel,
+
+        /// Vertical tab sidebar state, cycled by `cycle_tab_sidebar`.
+        sidebar_mode: SidebarMode = .expanded,
+
+        /// Width of the expanded sidebar in pixels. Starts from the config.
+        sidebar_width: c_int = 240,
+
+        /// Sidebar theme for this window. Starts from the config and can be
+        /// changed from the main menu.
+        sidebar_theme: SidebarTheme = .graphite,
+
+        /// Pointer offset inside the resize handle when a drag began.
+        sidebar_drag_grab_x: f64 = 0,
 
         pub var offset: c_int = 0;
     };
@@ -323,6 +374,12 @@ pub const Window = extern struct {
         // We initialize our windowing protocol to none because we can't
         // actually initialize this until we get realized.
         priv.winproto = .none;
+
+        // Vertical tab sidebar starting state comes from the config.
+        priv.sidebar_theme = config.@"gtk-tabs-sidebar-theme";
+        priv.sidebar_width = clampSidebarWidth(
+            @intCast(@min(config.@"gtk-tabs-sidebar-width", 10_000)),
+        );
 
         // Add our dev CSS class if we're in debug mode.
         if (comptime build_config.is_debug) {
@@ -390,6 +447,15 @@ pub const Window = extern struct {
             // TODO: accept the surface that toggled the command palette
             .init("toggle-command-palette", actionToggleCommandPalette, null),
             .init("toggle-inspector", actionToggleInspector, null),
+            .init("set-tab-color", actionSetTabColor, s_variant_type),
+            .init("set-active-tab-color", actionSetActiveTabColor, s_variant_type),
+            .init("cycle-tab-sidebar", actionCycleTabSidebar, null),
+            .initStateful(
+                "sidebar-theme",
+                actionSidebarTheme,
+                s_variant_type,
+                glib.Variant.newString(@tagName(self.private().sidebar_theme)),
+            ),
         };
 
         ext.actions.add(Self, self, &actions);
@@ -684,6 +750,8 @@ pub const Window = extern struct {
             "tabs-visible",
             "tabs-wide",
             "sidebar-visible",
+            "sidebar-compact",
+            "sidebar-resizable",
             "toolbar-style",
             "titlebar-style",
         }) |key| {
@@ -719,11 +787,9 @@ pub const Window = extern struct {
             .bottom => priv.toolbar.addBottomBar(priv.tab_bar.as(gtk.Widget)),
         }
 
-        // Put the vertical tab sidebar on the configured side.
-        priv.sidebar_split.setSidebarPosition(switch (config.@"gtk-tabs-location") {
-            .right => .end,
-            .top, .bottom, .left => .start,
-        });
+        // Put the vertical tab sidebar on the configured side and apply
+        // its size and theme.
+        self.syncSidebar();
 
         // Do our window-protocol specific appearance sync.
         priv.winproto.syncAppearance() catch |err| {
@@ -1071,7 +1137,282 @@ pub const Window = extern struct {
         if (!config.@"gtk-tabs-location".isVertical()) return false;
 
         // Respect the user's choice to never show tabs.
-        return config.@"window-show-tab-bar" != .never;
+        if (config.@"window-show-tab-bar" == .never) return false;
+
+        return priv.sidebar_mode != .hidden;
+    }
+
+    fn getSidebarCompact(self: *Self) bool {
+        return self.private().sidebar_mode == .compact;
+    }
+
+    fn getSidebarResizable(self: *Self) bool {
+        return self.getSidebarVisible() and
+            self.private().sidebar_mode == .expanded;
+    }
+
+    //---------------------------------------------------------------
+    // Vertical tab sidebar
+
+    pub const SidebarMode = enum { expanded, compact, hidden };
+
+    const sidebar_min_width: c_int = 160;
+    const sidebar_max_width: c_int = 480;
+    const sidebar_compact_width: c_int = 60;
+
+    fn clampSidebarWidth(width: c_int) c_int {
+        return std.math.clamp(width, sidebar_min_width, sidebar_max_width);
+    }
+
+    fn sidebarIsVertical(self: *Self) bool {
+        const config = if (self.private().config) |v| v.get() else return false;
+        return config.@"gtk-tabs-location".isVertical();
+    }
+
+    fn sidebarOnRight(self: *Self) bool {
+        const config = if (self.private().config) |v| v.get() else return false;
+        return config.@"gtk-tabs-location" == .right;
+    }
+
+    /// Cycle expanded -> compact -> hidden -> expanded. Returns false if
+    /// tabs aren't shown in a sidebar, so the key press passes through.
+    pub fn cycleSidebarMode(self: *Self) bool {
+        if (!self.sidebarIsVertical()) return false;
+        const priv = self.private();
+        priv.sidebar_mode = switch (priv.sidebar_mode) {
+            .expanded => .compact,
+            .compact => .hidden,
+            .hidden => .expanded,
+        };
+        self.syncSidebar();
+        return true;
+    }
+
+    /// Apply side, size, theme and visibility of the vertical tab sidebar.
+    fn syncSidebar(self: *Self) void {
+        const priv = self.private();
+        const right = self.sidebarOnRight();
+
+        // Order the layout children: [sidebar][handle][content] on the
+        // left, [content][handle][sidebar] on the right.
+        const layout = priv.sidebar_layout;
+        const sidebar = priv.sidebar_revealer.as(gtk.Widget);
+        const handle = priv.sidebar_handle.as(gtk.Widget);
+        const content = priv.sidebar_content.as(gtk.Widget);
+        if (right) {
+            layout.reorderChildAfter(content, null);
+            layout.reorderChildAfter(handle, content);
+            layout.reorderChildAfter(sidebar, handle);
+            priv.sidebar_revealer.setTransitionType(.slide_left);
+        } else {
+            layout.reorderChildAfter(sidebar, null);
+            layout.reorderChildAfter(handle, sidebar);
+            layout.reorderChildAfter(content, handle);
+            priv.sidebar_revealer.setTransitionType(.slide_right);
+        }
+
+        // Width depends on the mode. Hidden keeps the last width so the
+        // slide-out animation doesn't jump.
+        const sidebar_widget = priv.sidebar.as(gtk.Widget);
+        const width: c_int = switch (priv.sidebar_mode) {
+            .compact => sidebar_compact_width,
+            .expanded, .hidden => priv.sidebar_width,
+        };
+        sidebar_widget.setSizeRequest(width, -1);
+
+        // CSS classes: side, compact and theme.
+        toggleWidgetCssClass(sidebar_widget, "right", right);
+        toggleWidgetCssClass(sidebar_widget, "left", !right);
+        toggleWidgetCssClass(handle, "right", right);
+        toggleWidgetCssClass(sidebar_widget, "compact", priv.sidebar_mode == .compact);
+        inline for (@typeInfo(SidebarTheme).@"enum".fields) |field| {
+            toggleWidgetCssClass(
+                sidebar_widget,
+                "theme-" ++ field.name,
+                @intFromEnum(priv.sidebar_theme) == field.value,
+            );
+        }
+
+        // Sidebar-only menu items do nothing for horizontal tabs.
+        const vertical = self.sidebarIsVertical();
+        inline for (.{ "cycle-tab-sidebar", "sidebar-theme" }) |name| {
+            if (self.as(gio.ActionMap).lookupAction(name)) |action| {
+                if (gobject.ext.cast(gio.SimpleAction, action)) |simple| {
+                    simple.setEnabled(@intFromBool(vertical));
+                }
+            }
+        }
+
+        inline for (.{ "sidebar-visible", "sidebar-compact", "sidebar-resizable" }) |key| {
+            self.as(gobject.Object).notifyByPspec(
+                @field(properties, key).impl.param_spec,
+            );
+        }
+    }
+
+    fn toggleWidgetCssClass(widget: *gtk.Widget, class: [:0]const u8, value: bool) void {
+        if (value)
+            widget.addCssClass(class.ptr)
+        else
+            widget.removeCssClass(class.ptr);
+    }
+
+    /// Close a tab from its sidebar row. Uses the same confirmation path
+    /// as closing from the tab bar.
+    pub fn closeSidebarPage(self: *Self, page: *adw.TabPage) void {
+        self.private().tab_view.closePage(page);
+    }
+
+    /// Show the tab context menu (rename, color) for a sidebar row.
+    pub fn showSidebarTabMenu(
+        self: *Self,
+        row: *gtk.Widget,
+        page: *adw.TabPage,
+        x: f64,
+        y: f64,
+    ) void {
+        const priv = self.private();
+        priv.context_menu_page = page;
+
+        const popover = gtk.PopoverMenu.newFromModel(priv.tab_context_menu);
+        const popover_widget = popover.as(gtk.Widget);
+        popover_widget.setParent(row);
+        popover.as(gtk.Popover).setHasArrow(0);
+        popover.as(gtk.Popover).setPosition(.bottom);
+        const rect: gdk.Rectangle = .{
+            .f_x = @intFromFloat(x),
+            .f_y = @intFromFloat(y),
+            .f_width = 1,
+            .f_height = 1,
+        };
+        popover.as(gtk.Popover).setPointingTo(&rect);
+        _ = gtk.Popover.signals.closed.connect(
+            popover.as(gtk.Popover),
+            ?*anyopaque,
+            sidebarMenuClosed,
+            null,
+            .{},
+        );
+        popover.as(gtk.Popover).popup();
+    }
+
+    fn sidebarMenuClosed(popover: *gtk.Popover, _: ?*anyopaque) callconv(.c) void {
+        // Unparent on idle so a clicked menu item can still activate its
+        // action through the widget tree first.
+        _ = glib.idleAdd(sidebarMenuUnparent, popover);
+    }
+
+    fn sidebarMenuUnparent(ud: ?*anyopaque) callconv(.c) c_int {
+        const popover: *gtk.Popover = @ptrCast(@alignCast(ud orelse return 0));
+        popover.as(gtk.Widget).unparent();
+        return 0;
+    }
+
+    fn btnCycleSidebar(_: *gtk.Button, self: *Self) callconv(.c) void {
+        _ = self.cycleSidebarMode();
+    }
+
+    fn sidebarDragBegin(
+        _: *gtk.GestureDrag,
+        x: f64,
+        _: f64,
+        self: *Self,
+    ) callconv(.c) void {
+        self.private().sidebar_drag_grab_x = x;
+    }
+
+    fn sidebarDragUpdate(
+        gesture: *gtk.GestureDrag,
+        _: f64,
+        _: f64,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        if (priv.sidebar_mode != .expanded) return;
+
+        // Use the pointer position in the (non-moving) layout box rather
+        // than the drag offset, because the handle moves as we resize.
+        var hx: f64 = 0;
+        var hy: f64 = 0;
+        if (gesture.as(gtk.Gesture).getPoint(null, &hx, &hy) == 0) return;
+        var lx: f64 = 0;
+        var ly: f64 = 0;
+        if (priv.sidebar_handle.as(gtk.Widget).translateCoordinates(
+            priv.sidebar_layout.as(gtk.Widget),
+            hx,
+            hy,
+            &lx,
+            &ly,
+        ) == 0) return;
+
+        const handle_left = lx - priv.sidebar_drag_grab_x;
+        const width: f64 = if (self.sidebarOnRight()) width: {
+            const layout_width: f64 = @floatFromInt(priv.sidebar_layout.as(gtk.Widget).getWidth());
+            const handle_width: f64 = @floatFromInt(priv.sidebar_handle.as(gtk.Widget).getWidth());
+            break :width layout_width - handle_left - handle_width;
+        } else handle_left;
+
+        priv.sidebar_width = clampSidebarWidth(@intFromFloat(@round(width)));
+        priv.sidebar.as(gtk.Widget).setSizeRequest(priv.sidebar_width, -1);
+    }
+
+    /// Resolve the page a tab color action applies to and set it.
+    fn applyTabColor(page_: ?*adw.TabPage, param_: ?*glib.Variant) void {
+        const page = page_ orelse return;
+        const param = param_ orelse return;
+        const tab = gobject.ext.cast(Tab, page.getChild()) orelse return;
+
+        var str: ?[*:0]const u8 = null;
+        param.get("&s", &str);
+        const name = std.mem.span(str orelse return);
+        if (tab_sidebar_row.isTabColor(name)) {
+            tab.setColor(name);
+        } else {
+            tab.setColor(null);
+        }
+    }
+
+    fn actionSetTabColor(
+        _: *gio.SimpleAction,
+        param_: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        applyTabColor(priv.context_menu_page orelse priv.tab_view.getSelectedPage(), param_);
+    }
+
+    fn actionSetActiveTabColor(
+        _: *gio.SimpleAction,
+        param_: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        applyTabColor(self.private().tab_view.getSelectedPage(), param_);
+    }
+
+    fn actionCycleTabSidebar(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        _ = self.cycleSidebarMode();
+    }
+
+    fn actionSidebarTheme(
+        action: *gio.SimpleAction,
+        param_: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const param = param_ orelse return;
+        var str: ?[*:0]const u8 = null;
+        param.get("&s", &str);
+        const theme = std.meta.stringToEnum(
+            SidebarTheme,
+            std.mem.span(str orelse return),
+        ) orelse return;
+
+        self.private().sidebar_theme = theme;
+        action.setState(param);
+        self.syncSidebar();
     }
 
     fn getTabsWide(self: *Self) bool {
@@ -2102,6 +2443,7 @@ pub const Window = extern struct {
             gobject.ext.ensureType(SplitTree);
             gobject.ext.ensureType(Surface);
             gobject.ext.ensureType(Tab);
+            gobject.ext.ensureType(TabSidebarRow);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
@@ -2122,6 +2464,8 @@ pub const Window = extern struct {
                 properties.@"tabs-visible".impl,
                 properties.@"tabs-wide".impl,
                 properties.@"sidebar-visible".impl,
+                properties.@"sidebar-compact".impl,
+                properties.@"sidebar-resizable".impl,
                 properties.@"toolbar-style".impl,
                 properties.@"titlebar-style".impl,
             });
@@ -2132,9 +2476,17 @@ pub const Window = extern struct {
             class.bindTemplateChildPrivate("tab_view", .{});
             class.bindTemplateChildPrivate("toolbar", .{});
             class.bindTemplateChildPrivate("toast_overlay", .{});
-            class.bindTemplateChildPrivate("sidebar_split", .{});
+            class.bindTemplateChildPrivate("sidebar_layout", .{});
+            class.bindTemplateChildPrivate("sidebar_revealer", .{});
+            class.bindTemplateChildPrivate("sidebar", .{});
+            class.bindTemplateChildPrivate("sidebar_handle", .{});
+            class.bindTemplateChildPrivate("sidebar_content", .{});
+            class.bindTemplateChildPrivate("tab_context_menu", .{});
 
             // Template Callbacks
+            class.bindTemplateCallback("cycle_sidebar", &btnCycleSidebar);
+            class.bindTemplateCallback("sidebar_drag_begin", &sidebarDragBegin);
+            class.bindTemplateCallback("sidebar_drag_update", &sidebarDragUpdate);
             class.bindTemplateCallback("realize", &windowRealize);
             class.bindTemplateCallback("new_tab", &btnNewTab);
             class.bindTemplateCallback("overview_create_tab", &tabOverviewCreateTab);

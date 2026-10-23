@@ -752,6 +752,7 @@ pub const Application = extern struct {
             .toggle_fullscreen => Action.toggleFullscreen(target),
             .toggle_quick_terminal => return Action.toggleQuickTerminal(self),
             .toggle_tab_overview => return Action.toggleTabOverview(target),
+            .cycle_tab_sidebar => return Action.cycleTabSidebar(target),
             .toggle_window_decorations => return Action.toggleWindowDecorations(target),
             .toggle_command_palette => return Action.toggleCommandPalette(target),
             .toggle_split_zoom => return Action.toggleSplitZoom(target),
@@ -2699,6 +2700,24 @@ const Action = struct {
         switch (target) {
             .app => {},
             .surface => |v| v.rt_surface.surface.toggleMaximize(),
+        }
+    }
+
+    pub fn cycleTabSidebar(target: apprt.Target) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring cycle_tab_sidebar", .{});
+                    return false;
+                };
+
+                return window.cycleSidebarMode();
+            },
         }
     }
 

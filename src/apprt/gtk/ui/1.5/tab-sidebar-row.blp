@@ -1,0 +1,131 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttyTabSidebarRow: Adw.Bin {
+  styles [
+    "tab-row",
+  ]
+
+  tab-color: bind template.page as <Adw.TabPage>.child as <$GhosttyTab>.color;
+  tooltip-text: bind template.page as <Adw.TabPage>.title;
+
+  Gtk.GestureClick {
+    button: 2;
+    pressed => $middle_pressed();
+  }
+
+  Gtk.GestureClick {
+    button: 3;
+    pressed => $secondary_pressed();
+  }
+
+  Gtk.Box {
+    orientation: vertical;
+
+    // Full row.
+    Gtk.Box {
+      styles [
+        "tab-row-full",
+      ]
+
+      visible: bind template.compact inverted;
+      orientation: horizontal;
+      spacing: 10;
+
+      Gtk.Box {
+        styles [
+          "tab-color-bar",
+        ]
+      }
+
+      Gtk.Box {
+        orientation: vertical;
+        hexpand: true;
+        valign: center;
+        spacing: 2;
+
+        Gtk.Label {
+          styles [
+            "tab-title",
+          ]
+
+          xalign: 0;
+          ellipsize: end;
+          max-width-chars: 1;
+          label: bind template.page as <Adw.TabPage>.title;
+        }
+
+        Gtk.Label {
+          styles [
+            "tab-subtitle",
+          ]
+
+          xalign: 0;
+          ellipsize: start;
+          max-width-chars: 1;
+          label: bind template.page as <Adw.TabPage>.child as <$GhosttyTab>.active-surface as <$GhosttySurface>.pwd;
+        }
+      }
+
+      Gtk.Image {
+        styles [
+          "tab-attention",
+        ]
+
+        valign: center;
+        icon-name: "media-record-symbolic";
+        pixel-size: 8;
+        visible: bind template.page as <Adw.TabPage>.needs-attention;
+      }
+
+      Gtk.Button {
+        styles [
+          "flat",
+          "circular",
+          "tab-close",
+        ]
+
+        valign: center;
+        icon-name: "window-close-symbolic";
+        tooltip-text: _("Close Tab");
+        can-focus: false;
+        focus-on-click: false;
+        clicked => $close_clicked();
+      }
+    }
+
+    // Compact badge.
+    Gtk.Overlay {
+      styles [
+        "tab-row-compact",
+      ]
+
+      visible: bind template.compact;
+      halign: center;
+
+      Gtk.Label badge {
+        styles [
+          "tab-badge",
+        ]
+
+        justify: center;
+        halign: center;
+        valign: center;
+      }
+
+      [overlay]
+      Gtk.Image {
+        styles [
+          "tab-attention",
+          "tab-attention-badge",
+        ]
+
+        halign: end;
+        valign: start;
+        icon-name: "media-record-symbolic";
+        pixel-size: 8;
+        visible: bind template.page as <Adw.TabPage>.needs-attention;
+      }
+    }
+  }
+}

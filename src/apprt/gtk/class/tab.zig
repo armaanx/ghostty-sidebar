@@ -139,6 +139,21 @@ pub const Tab = extern struct {
                 },
             );
         };
+
+        /// Name of the user-chosen tab color (for example "red"), or null
+        /// for no color. Shown in the vertical tab sidebar.
+        pub const color = struct {
+            pub const name = "color";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?[:0]const u8,
+                .{
+                    .default = null,
+                    .accessor = C.privateStringFieldAccessor("color"),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -164,6 +179,9 @@ pub const Tab = extern struct {
 
         /// The manually overridden title from `promptTabTitle`.
         title_override: ?[:0]const u8 = null,
+
+        /// The user-chosen tab color name, see the `color` property.
+        color: ?[:0]const u8 = null,
 
         /// The tooltip of this tab. This is usually bound to the active surface.
         tooltip: ?[:0]const u8 = null,
@@ -260,6 +278,15 @@ pub const Tab = extern struct {
         if (title) |v| priv.title_override = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"title-override".impl.param_spec);
     }
+
+    /// Set the tab color by name (for example "red"). Null clears it.
+    pub fn setColor(self: *Self, color: ?[:0]const u8) void {
+        const priv = self.private();
+        if (priv.color) |v| glib.free(@ptrCast(@constCast(v)));
+        priv.color = null;
+        if (color) |v| priv.color = glib.ext.dupeZ(u8, v);
+        self.as(gobject.Object).notifyByPspec(properties.color.impl.param_spec);
+    }
     fn titleDialogSet(
         _: *TitleDialog,
         title_ptr: [*:0]const u8,
@@ -355,6 +382,10 @@ pub const Tab = extern struct {
         if (priv.title_override) |v| {
             glib.free(@ptrCast(@constCast(v)));
             priv.title_override = null;
+        }
+        if (priv.color) |v| {
+            glib.free(@ptrCast(@constCast(v)));
+            priv.color = null;
         }
 
         gobject.Object.virtual_methods.finalize.call(
@@ -567,6 +598,7 @@ pub const Tab = extern struct {
                 properties.title.impl,
                 properties.@"title-override".impl,
                 properties.tooltip.impl,
+                properties.color.impl,
             });
 
             // Bindings

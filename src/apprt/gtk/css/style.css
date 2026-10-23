@@ -181,3 +181,290 @@ label.resize-overlay {
   margin: 0;
   padding: 0;
 }
+
+
+/*
+ * Vertical tab sidebar (gtk-tabs-location = left | right)
+ *
+ * Themes set CSS variables on .ghostty-tab-sidebar; everything below reads
+ * them. Requires GTK 4.16+ for CSS custom properties.
+ */
+.ghostty-tab-sidebar {
+  --sb-bg: transparent;
+  --sb-fg: currentColor;
+  --sb-muted: alpha(currentColor, 0.55);
+  --sb-hover: alpha(currentColor, 0.06);
+  --sb-selected: alpha(currentColor, 0.11);
+  --sb-border: alpha(currentColor, 0.10);
+  --sb-badge: alpha(currentColor, 0.07);
+  --sb-ring: alpha(currentColor, 0.35);
+  --sb-attention: #4ea1ff;
+
+  background-color: var(--sb-bg);
+  color: var(--sb-fg);
+}
+
+.ghostty-tab-sidebar.theme-graphite {
+  --sb-bg: #1d1d20;
+  --sb-fg: #e6e6e9;
+  --sb-muted: #8c8c95;
+  --sb-hover: #26262a;
+  --sb-selected: #303035;
+  --sb-border: #2b2b30;
+  --sb-badge: #29292e;
+  --sb-ring: #6a6a74;
+}
+
+.ghostty-tab-sidebar.theme-charcoal {
+  --sb-bg: #141416;
+  --sb-fg: #e8e8eb;
+  --sb-muted: #84848c;
+  --sb-hover: #1d1d20;
+  --sb-selected: #26262a;
+  --sb-border: #222225;
+  --sb-badge: #202023;
+  --sb-ring: #5e5e66;
+}
+
+.ghostty-tab-sidebar.theme-midnight {
+  --sb-bg: #000000;
+  --sb-fg: #ededed;
+  --sb-muted: #7a7a7a;
+  --sb-hover: #101010;
+  --sb-selected: #1a1a1a;
+  --sb-border: #161616;
+  --sb-badge: #121212;
+  --sb-ring: #4d4d4d;
+}
+
+.ghostty-tab-sidebar.left {
+  border-right: 1px solid var(--sb-border);
+}
+
+.ghostty-tab-sidebar.right {
+  border-left: 1px solid var(--sb-border);
+}
+
+/* Header: "TABS" label and collapse button */
+.ghostty-tab-sidebar .sidebar-header {
+  padding: 10px 8px 6px 16px;
+  min-height: 28px;
+}
+
+.ghostty-tab-sidebar.compact .sidebar-header {
+  padding: 10px 0 6px 0;
+}
+
+.ghostty-tab-sidebar .sidebar-heading {
+  color: var(--sb-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ghostty-tab-sidebar .sidebar-collapse {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 8px;
+  color: var(--sb-muted);
+}
+
+.ghostty-tab-sidebar .sidebar-collapse:hover {
+  background-color: var(--sb-hover);
+  color: var(--sb-fg);
+}
+
+/* Tab list */
+.ghostty-tab-list {
+  background: none;
+  padding: 2px 0 8px 0;
+}
+
+.ghostty-tab-list > row {
+  background: none;
+  padding: 0;
+  margin: 1px 8px;
+  outline: none;
+  box-shadow: none;
+}
+
+.ghostty-tab-list.compact > row {
+  margin: 3px 0;
+}
+
+.ghostty-tab-list > row > .tab-row {
+  border-radius: 10px;
+  transition: background-color 120ms ease-out;
+}
+
+.ghostty-tab-list > row:hover > .tab-row {
+  background-color: var(--sb-hover);
+}
+
+.ghostty-tab-list > row:selected > .tab-row {
+  background-color: var(--sb-selected);
+}
+
+.ghostty-tab-list.compact > row:hover > .tab-row,
+.ghostty-tab-list.compact > row:selected > .tab-row {
+  background: none;
+}
+
+.tab-row-full {
+  padding: 7px 6px 7px 0;
+  min-height: 34px;
+}
+
+.tab-color-bar {
+  min-width: 3px;
+  margin: 3px 0 3px 6px;
+  border-radius: 3px;
+  background-color: transparent;
+}
+
+.tab-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ghostty-tab-list > row:selected .tab-title {
+  font-weight: 650;
+}
+
+.tab-subtitle {
+  font-family: monospace;
+  font-size: 10.5px;
+  color: var(--sb-muted);
+}
+
+.tab-attention {
+  color: var(--sb-attention);
+  -gtk-icon-shadow: 0 0 6px alpha(#4ea1ff, 0.8);
+}
+
+.tab-close {
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  color: var(--sb-muted);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.ghostty-tab-list > row:hover .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  color: var(--sb-fg);
+  background-color: var(--sb-hover);
+}
+
+/* Compact badges */
+.tab-row-compact {
+  padding: 0;
+}
+
+.tab-badge {
+  min-width: 38px;
+  min-height: 38px;
+  border-radius: 11px;
+  background-color: var(--sb-badge);
+  color: var(--sb-muted);
+  font-size: 13px;
+  font-weight: 700;
+  transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+
+.ghostty-tab-list.compact > row:hover .tab-badge {
+  background-color: var(--sb-hover);
+  color: var(--sb-fg);
+}
+
+.ghostty-tab-list.compact > row:selected .tab-badge {
+  background-color: var(--sb-selected);
+  color: var(--sb-fg);
+  box-shadow: inset 0 0 0 1.5px var(--sb-ring);
+}
+
+.tab-attention-badge {
+  margin: 2px;
+}
+
+/* Footer New Tab button */
+.sidebar-new-tab {
+  margin: 6px 8px 10px 8px;
+  min-height: 32px;
+  border-radius: 9px;
+  background-color: var(--sb-badge);
+  color: var(--sb-muted);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.sidebar-new-tab:hover {
+  background-color: var(--sb-selected);
+  color: var(--sb-fg);
+}
+
+.ghostty-tab-sidebar.compact .sidebar-new-tab {
+  margin: 6px 11px 10px 11px;
+  padding: 0;
+}
+
+/* Resize handle */
+.sidebar-handle {
+  min-width: 4px;
+  background-color: transparent;
+  transition: background-color 120ms ease-out;
+}
+
+.sidebar-handle:hover {
+  background-color: alpha(#4ea1ff, 0.45);
+}
+
+/* Tab colors: bar on full rows, tinted selection, strip on badges */
+.tab-row.color-red .tab-color-bar { background-color: #e5484d; }
+.tab-row.color-orange .tab-color-bar { background-color: #f76b15; }
+.tab-row.color-yellow .tab-color-bar { background-color: #f5c400; }
+.tab-row.color-green .tab-color-bar { background-color: #46a758; }
+.tab-row.color-teal .tab-color-bar { background-color: #12a594; }
+.tab-row.color-blue .tab-color-bar { background-color: #3e7bfa; }
+.tab-row.color-purple .tab-color-bar { background-color: #8e4ec6; }
+.tab-row.color-pink .tab-color-bar { background-color: #d6409f; }
+.tab-row.color-gray .tab-color-bar { background-color: #8b8d98; }
+
+.ghostty-tab-list > row:selected > .tab-row.color-red { background-color: alpha(#e5484d, 0.18); }
+.ghostty-tab-list > row:selected > .tab-row.color-orange { background-color: alpha(#f76b15, 0.18); }
+.ghostty-tab-list > row:selected > .tab-row.color-yellow { background-color: alpha(#f5c400, 0.16); }
+.ghostty-tab-list > row:selected > .tab-row.color-green { background-color: alpha(#46a758, 0.18); }
+.ghostty-tab-list > row:selected > .tab-row.color-teal { background-color: alpha(#12a594, 0.18); }
+.ghostty-tab-list > row:selected > .tab-row.color-blue { background-color: alpha(#3e7bfa, 0.18); }
+.ghostty-tab-list > row:selected > .tab-row.color-purple { background-color: alpha(#8e4ec6, 0.20); }
+.ghostty-tab-list > row:selected > .tab-row.color-pink { background-color: alpha(#d6409f, 0.18); }
+.ghostty-tab-list > row:selected > .tab-row.color-gray { background-color: alpha(#8b8d98, 0.18); }
+
+.ghostty-tab-list.compact > row:selected > .tab-row { background: none; }
+
+.tab-row.color-red .tab-badge { box-shadow: inset 0 -3px 0 #e5484d; }
+.tab-row.color-orange .tab-badge { box-shadow: inset 0 -3px 0 #f76b15; }
+.tab-row.color-yellow .tab-badge { box-shadow: inset 0 -3px 0 #f5c400; }
+.tab-row.color-green .tab-badge { box-shadow: inset 0 -3px 0 #46a758; }
+.tab-row.color-teal .tab-badge { box-shadow: inset 0 -3px 0 #12a594; }
+.tab-row.color-blue .tab-badge { box-shadow: inset 0 -3px 0 #3e7bfa; }
+.tab-row.color-purple .tab-badge { box-shadow: inset 0 -3px 0 #8e4ec6; }
+.tab-row.color-pink .tab-badge { box-shadow: inset 0 -3px 0 #d6409f; }
+.tab-row.color-gray .tab-badge { box-shadow: inset 0 -3px 0 #8b8d98; }
+
+/* Selected + colored compact badge keeps both the color strip and ring. */
+.ghostty-tab-list.compact > row:selected > .tab-row.color-red .tab-badge { box-shadow: inset 0 -3px 0 #e5484d, inset 0 0 0 1.5px var(--sb-ring); }
+.ghostty-tab-list.compact > row:selected > .tab-row.color-orange .tab-badge { box-shadow: inset 0 -3px 0 #f76b15, inset 0 0 0 1.5px var(--sb-ring); }
+.ghostty-tab-list.compact > row:selected > .tab-row.color-yellow .tab-badge { box-shadow: inset 0 -3px 0 #f5c400, inset 0 0 0 1.5px var(--sb-ring); }
+.ghostty-tab-list.compact > row:selected > .tab-row.color-green .tab-badge { box-shadow: inset 0 -3px 0 #46a758, inset 0 0 0 1.5px var(--sb-ring); }
+.ghostty-tab-list.compact > row:selected > .tab-row.color-teal .tab-badge { box-shadow: inset 0 -3px 0 #12a594, inset 0 0 0 1.5px var(--sb-ring); }
+.ghostty-tab-list.compact > row:selected > .tab-row.color-blue .tab-badge { box-shadow: inset 0 -3px 0 #3e7bfa, inset 0 0 0 1.5px var(--sb-ring); }
+.ghostty-tab-list.compact > row:selected > .tab-row.color-purple .tab-badge { box-shadow: inset 0 -3px 0 #8e4ec6, inset 0 0 0 1.5px var(--sb-ring); }
+.ghostty-tab-list.compact > row:selected > .tab-row.color-pink .tab-badge { box-shadow: inset 0 -3px 0 #d6409f, inset 0 0 0 1.5px var(--sb-ring); }
+.ghostty-tab-list.compact > row:selected > .tab-row.color-gray .tab-badge { box-shadow: inset 0 -3px 0 #8b8d98, inset 0 0 0 1.5px var(--sb-ring); }

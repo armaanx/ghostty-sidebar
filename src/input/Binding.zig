@@ -569,6 +569,13 @@ pub const Action = union(enum) {
     /// found by running `ghostty +version`.
     toggle_tab_overview,
 
+    /// Cycle the vertical tab sidebar between three states: expanded,
+    /// compact (a narrow strip of numbered tab badges) and hidden.
+    ///
+    /// Only has an effect when `gtk-tabs-location` is `left` or `right`.
+    /// Only implemented on GTK.
+    cycle_tab_sidebar,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1383,6 +1390,7 @@ pub const Action = union(enum) {
             .goto_tab,
             .move_tab,
             .toggle_tab_overview,
+            .cycle_tab_sidebar,
             .new_split,
             .goto_split,
             .goto_window,

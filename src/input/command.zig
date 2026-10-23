@@ -438,6 +438,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle the tab overview.",
         }},
 
+        .cycle_tab_sidebar => comptime &.{.{
+            .action = .cycle_tab_sidebar,
+            .title = "Cycle Tab Sidebar",
+            .description = "Switch the tab sidebar between expanded, compact and hidden.",
+        }},
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = "Change Terminal Title…",

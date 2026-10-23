@@ -3588,6 +3588,19 @@ else
 /// well because it holds the window controls.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
+/// Color theme of the vertical tab sidebar (`gtk-tabs-location` = `left`
+/// or `right`). Can also be changed per window from the main menu.
+///
+///   * `auto` - Follow the window's GTK/libadwaita colors.
+///   * `graphite` - Dark gray. The default.
+///   * `charcoal` - Darker, near-black gray.
+///   * `midnight` - Pure black, for OLED screens.
+@"gtk-tabs-sidebar-theme": GtkTabsSidebarTheme = .graphite,
+
+/// Starting width in pixels of the expanded vertical tab sidebar. The
+/// sidebar can be resized by dragging its edge. Clamped to 160-480.
+@"gtk-tabs-sidebar-width": u32 = 240,
+
 /// If this is `true`, the titlebar will be hidden when the window is maximized,
 /// and shown when the titlebar is unmaximized. GTK only.
 ///
@@ -6604,6 +6617,11 @@ pub const Keybinds = struct {
             );
             try self.set.put(
                 alloc,
+                .{ .key = .{ .unicode = 'b' }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .cycle_tab_sidebar = {} },
+            );
+            try self.set.put(
+                alloc,
                 .{ .key = .{ .unicode = 'w' }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .close_tab = .this },
             );
@@ -9002,6 +9020,14 @@ pub const GtkTabsLocation = enum {
             .left, .right => true,
         };
     }
+};
+
+/// See gtk-tabs-sidebar-theme
+pub const GtkTabsSidebarTheme = enum {
+    auto,
+    graphite,
+    charcoal,
+    midnight,
 };
 
 /// See gtk-toolbar-style
