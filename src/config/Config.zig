@@ -3579,6 +3579,13 @@ else
 /// tabs. Alternatively, you can use the `toggle_tab_overview` action in a
 /// keybind if your window doesn't have a title bar, or you can switch tabs
 /// with keybinds.
+///
+/// `left` and `right` replace the horizontal tab bar with a vertical tab
+/// sidebar on that side of the window. Each entry shows the tab title, the
+/// working directory of the tab's focused split, and a dot when the tab
+/// needs attention (for example after a bell). Click an entry to switch to
+/// it. If `gtk-titlebar-style` is `tabs`, the horizontal tab bar is kept as
+/// well because it holds the window controls.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
 /// If this is `true`, the titlebar will be hidden when the window is maximized,
@@ -8985,6 +8992,16 @@ pub const GtkSingleInstance = enum {
 pub const GtkTabsLocation = enum {
     top,
     bottom,
+    left,
+    right,
+
+    /// True if tabs are shown in a vertical sidebar instead of a tab bar.
+    pub fn isVertical(self: GtkTabsLocation) bool {
+        return switch (self) {
+            .top, .bottom => false,
+            .left, .right => true,
+        };
+    }
 };
 
 /// See gtk-toolbar-style

@@ -195,6 +195,21 @@ pub const Window = extern struct {
             );
         };
 
+        pub const @"sidebar-visible" = struct {
+            pub const name = "sidebar-visible";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(Self, bool, .{
+                        .getter = Self.getSidebarVisible,
+                    }),
+                },
+            );
+        };
+
         pub const @"toolbar-style" = struct {
             pub const name = "toolbar-style";
             const impl = gobject.ext.defineProperty(
@@ -262,6 +277,7 @@ pub const Window = extern struct {
         tab_view: *adw.TabView,
         toolbar: *adw.ToolbarView,
         toast_overlay: *adw.ToastOverlay,
+        sidebar_split: *adw.OverlaySplitView,
 
         pub var offset: c_int = 0;
     };
@@ -667,6 +683,7 @@ pub const Window = extern struct {
             "tabs-autohide",
             "tabs-visible",
             "tabs-wide",
+            "sidebar-visible",
             "toolbar-style",
             "titlebar-style",
         }) |key| {
@@ -693,12 +710,20 @@ pub const Window = extern struct {
                 config.@"window-theme" == .ghostty,
         );
 
-        // Move the tab bar to the proper location.
+        // Move the tab bar to the proper location. With a vertical
+        // sidebar the tab bar is hidden (see getTabsVisible) unless the
+        // titlebar style needs it, in which case it stays on top.
         priv.toolbar.remove(priv.tab_bar.as(gtk.Widget));
         switch (config.@"gtk-tabs-location") {
-            .top => priv.toolbar.addTopBar(priv.tab_bar.as(gtk.Widget)),
+            .top, .left, .right => priv.toolbar.addTopBar(priv.tab_bar.as(gtk.Widget)),
             .bottom => priv.toolbar.addBottomBar(priv.tab_bar.as(gtk.Widget)),
         }
+
+        // Put the vertical tab sidebar on the configured side.
+        priv.sidebar_split.setSidebarPosition(switch (config.@"gtk-tabs-location") {
+            .right => .end,
+            .top, .bottom, .left => .start,
+        });
 
         // Do our window-protocol specific appearance sync.
         priv.winproto.syncAppearance() catch |err| {
@@ -1025,12 +1050,28 @@ pub const Window = extern struct {
                 return true;
             },
             .native => {
+                // The vertical sidebar replaces the tab bar.
+                if (config.@"gtk-tabs-location".isVertical()) return false;
+
                 return switch (config.@"window-show-tab-bar") {
                     .always, .auto => true,
                     .never => false,
                 };
             },
         }
+    }
+
+    fn getSidebarVisible(self: *Self) bool {
+        const priv = self.private();
+
+        // The quick terminal is too small for a sidebar.
+        if (priv.quick_terminal) return false;
+
+        const config = if (priv.config) |v| v.get() else return false;
+        if (!config.@"gtk-tabs-location".isVertical()) return false;
+
+        // Respect the user's choice to never show tabs.
+        return config.@"window-show-tab-bar" != .never;
     }
 
     fn getTabsWide(self: *Self) bool {
@@ -2080,6 +2121,7 @@ pub const Window = extern struct {
                 properties.@"tabs-autohide".impl,
                 properties.@"tabs-visible".impl,
                 properties.@"tabs-wide".impl,
+                properties.@"sidebar-visible".impl,
                 properties.@"toolbar-style".impl,
                 properties.@"titlebar-style".impl,
             });
@@ -2090,6 +2132,7 @@ pub const Window = extern struct {
             class.bindTemplateChildPrivate("tab_view", .{});
             class.bindTemplateChildPrivate("toolbar", .{});
             class.bindTemplateChildPrivate("toast_overlay", .{});
+            class.bindTemplateChildPrivate("sidebar_split", .{});
 
             // Template Callbacks
             class.bindTemplateCallback("realize", &windowRealize);

@@ -147,26 +147,122 @@ template $GhosttyWindow: Adw.ApplicationWindow {
         }
       }
 
-      Box {
-        orientation: vertical;
+      Adw.OverlaySplitView sidebar_split {
+        // Vertical tab sidebar. Only shown when `gtk-tabs-location` is
+        // `left` or `right`; otherwise the content fills the window.
+        show-sidebar: bind template.sidebar-visible;
+        enable-show-gesture: false;
+        enable-hide-gesture: false;
+        min-sidebar-width: 160;
+        max-sidebar-width: 320;
+        sidebar-width-fraction: 0.2;
 
-        $GhosttyDebugWarning {
-          visible: bind template.debug;
-        }
+        sidebar: Gtk.Box {
+          styles [
+            "ghostty-tab-sidebar",
+          ]
 
-        Adw.ToastOverlay toast_overlay {
-          Adw.TabView tab_view {
-            notify::n-pages => $notify_n_pages();
-            notify::selected-page => $notify_selected_page();
-            close-page => $close_page();
-            page-attached => $page_attached();
-            page-detached => $page_detached();
-            create-window => $tab_create_window();
-            setup-menu => $setup_tab_menu();
-            menu-model: tab_context_menu;
-            shortcuts: none;
+          orientation: vertical;
+
+          Gtk.ScrolledWindow {
+            vexpand: true;
+            hscrollbar-policy: never;
+
+            Gtk.ListView sidebar_list {
+              styles [
+                "navigation-sidebar",
+              ]
+
+              // AdwTabView.pages is a GtkSelectionModel, so selecting a row
+              // selects that tab and vice versa.
+              model: bind tab_view.pages;
+              // Keep keyboard focus in the terminal after clicking a row.
+              can-focus: false;
+              focus-on-click: false;
+
+              factory: Gtk.BuilderListItemFactory {
+                template Gtk.ListItem {
+                  child: Gtk.Box {
+                    orientation: horizontal;
+                    spacing: 6;
+
+                    Gtk.Box {
+                      orientation: vertical;
+                      hexpand: true;
+
+                      Gtk.Label {
+                        xalign: 0;
+                        ellipsize: end;
+                        label: bind template.item as <Adw.TabPage>.title;
+                        tooltip-text: bind template.item as <Adw.TabPage>.title;
+                      }
+
+                      Gtk.Label {
+                        styles [
+                          "caption",
+                          "dim-label",
+                        ]
+
+                        xalign: 0;
+                        ellipsize: start;
+                        label: bind template.item as <Adw.TabPage>.child as <$GhosttyTab>.active-surface as <$GhosttySurface>.pwd;
+                      }
+                    }
+
+                    Gtk.Image {
+                      styles [
+                        "accent",
+                      ]
+
+                      icon-name: "media-record-symbolic";
+                      pixel-size: 8;
+                      tooltip-text: _("Needs attention");
+                      visible: bind template.item as <Adw.TabPage>.needs-attention;
+                    }
+                  };
+                }
+              };
+            }
           }
-        }
+
+          Gtk.Button {
+            styles [
+              "flat",
+            ]
+
+            clicked => $new_tab();
+            tooltip-text: _("New Tab");
+            can-focus: false;
+            focus-on-click: false;
+
+            child: Adw.ButtonContent {
+              icon-name: "tab-new-symbolic";
+              label: _("New Tab");
+            };
+          }
+        };
+
+        content: Box {
+          orientation: vertical;
+
+          $GhosttyDebugWarning {
+            visible: bind template.debug;
+          }
+
+          Adw.ToastOverlay toast_overlay {
+            Adw.TabView tab_view {
+              notify::n-pages => $notify_n_pages();
+              notify::selected-page => $notify_selected_page();
+              close-page => $close_page();
+              page-attached => $page_attached();
+              page-detached => $page_detached();
+              create-window => $tab_create_window();
+              setup-menu => $setup_tab_menu();
+              menu-model: tab_context_menu;
+              shortcuts: none;
+            }
+          }
+        };
       }
     }
   };
