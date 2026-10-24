@@ -1,0 +1,143 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttySidebarMedia: Adw.Bin {
+  styles [
+    "sidebar-media",
+  ]
+
+  visible: false;
+
+  child: Gtk.Box {
+    orientation: vertical;
+    spacing: 8;
+
+    Gtk.Box {
+      orientation: horizontal;
+      spacing: 10;
+
+      Adw.Bin {
+        styles [
+          "media-art",
+        ]
+
+        overflow: hidden;
+        valign: center;
+
+        Gtk.Picture art {
+          width-request: 46;
+          height-request: 46;
+          content-fit: cover;
+          can-shrink: true;
+        }
+      }
+
+      Gtk.Box {
+        orientation: vertical;
+        valign: center;
+        hexpand: true;
+        spacing: 2;
+
+        Gtk.Label title_label {
+          styles [
+            "media-title",
+          ]
+
+          xalign: 0;
+          ellipsize: end;
+          max-width-chars: 1;
+        }
+
+        Gtk.Label artist_label {
+          styles [
+            "media-artist",
+          ]
+
+          xalign: 0;
+          ellipsize: end;
+          max-width-chars: 1;
+        }
+      }
+    }
+
+    Gtk.Scale progress {
+      styles [
+        "media-progress",
+      ]
+
+      draw-value: false;
+      hexpand: true;
+      can-focus: false;
+      focus-on-click: false;
+
+      adjustment: Gtk.Adjustment {
+        lower: 0;
+        upper: 1;
+        step-increment: 5;
+      };
+
+      change-value => $progress_change_value();
+    }
+
+    Gtk.CenterBox {
+      start-widget: Gtk.Label position_label {
+        styles [
+          "media-time",
+        ]
+      };
+
+      center-widget: Gtk.Box {
+        orientation: horizontal;
+        spacing: 4;
+
+        Gtk.Button {
+          styles [
+            "flat",
+            "circular",
+            "media-button",
+          ]
+
+          icon-name: "media-skip-backward-symbolic";
+          tooltip-text: _("Previous");
+          can-focus: false;
+          focus-on-click: false;
+          clicked => $previous_clicked();
+        }
+
+        Gtk.Button play_button {
+          styles [
+            "circular",
+            "media-button",
+            "media-play",
+          ]
+
+          icon-name: "media-playback-start-symbolic";
+          tooltip-text: _("Play/Pause");
+          can-focus: false;
+          focus-on-click: false;
+          clicked => $play_pause_clicked();
+        }
+
+        Gtk.Button {
+          styles [
+            "flat",
+            "circular",
+            "media-button",
+          ]
+
+          icon-name: "media-skip-forward-symbolic";
+          tooltip-text: _("Next");
+          can-focus: false;
+          focus-on-click: false;
+          clicked => $next_clicked();
+        }
+      };
+
+      end-widget: Gtk.Label length_label {
+        styles [
+          "media-time",
+        ]
+      };
+    }
+  };
+}

@@ -28,6 +28,10 @@ const Surface = @import("surface.zig").Surface;
 const Tab = @import("tab.zig").Tab;
 const TabSidebarRow = @import("tab_sidebar_row.zig").TabSidebarRow;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
+const SidebarMedia = @import("sidebar_media.zig").SidebarMedia;
+const SidebarPets = @import("sidebar_pets.zig").SidebarPets;
+const sidebar_pets_mod = @import("sidebar_pets.zig");
+const pet_sprites = @import("../pet_sprites.zig");
 const tab_sidebar_row = @import("tab_sidebar_row.zig");
 const SidebarTheme = configpkg.Config.GtkTabsSidebarTheme;
 const sidebar_state = @import("../sidebar_state.zig");
@@ -320,6 +324,8 @@ pub const Window = extern struct {
         sidebar_content: *gtk.Box,
         sidebar_guide: *gtk.Box,
         sidebar_list: *gtk.Box,
+        sidebar_media: *SidebarMedia,
+        sidebar_pets: *SidebarPets,
         tab_context_menu: *gio.MenuModel,
 
         /// Vertical tab sidebar state, cycled by `cycle_tab_sidebar`.
@@ -343,6 +349,12 @@ pub const Window = extern struct {
 
         /// Show working directories under tab titles.
         sidebar_show_paths: bool = true,
+
+        /// Which sidebar pets are shown (bits over pet_sprites.pets).
+        pets_mask: u32 = 0,
+
+        /// Show the now-playing media card.
+        media_enabled: bool = false,
 
         /// Pending idle source that rebuilds the sidebar rows.
         sidebar_rebuild_source: ?c_uint = null,
@@ -410,6 +422,10 @@ pub const Window = extern struct {
         priv.sidebar_accent = config.@"gtk-tabs-sidebar-accent";
         priv.sidebar_glass = config.@"gtk-tabs-sidebar-glass";
         priv.sidebar_show_paths = config.@"gtk-tabs-sidebar-show-paths";
+        priv.pets_mask = sidebar_pets_mod.maskFromList(
+            config.@"gtk-tabs-sidebar-pets" orelse "ghost,duck,crab",
+        );
+        priv.media_enabled = config.@"gtk-tabs-sidebar-media";
         {
             const saved = sidebar_state.load(Application.default().allocator());
             if (saved.width) |v| priv.sidebar_width = clampSidebarWidth(v);
@@ -418,6 +434,16 @@ pub const Window = extern struct {
             if (saved.accent) |v| priv.sidebar_accent = v;
             if (saved.glass) |v| priv.sidebar_glass = v;
             if (saved.show_paths) |v| priv.sidebar_show_paths = v;
+            if (saved.pets) |v| priv.pets_mask = v;
+            if (saved.media) |v| priv.media_enabled = v;
+        }
+
+        // Sidebar extras: pets and the media card.
+        priv.sidebar_pets.setPets(priv.pets_mask);
+        if (self.sidebarIsVertical()) {
+            priv.sidebar_media.connectPlayer(
+                config.@"gtk-tabs-sidebar-media-player" orelse "spotify",
+            );
         }
 
         // Dropping a tab on empty sidebar space moves it to the end and
@@ -522,6 +548,12 @@ pub const Window = extern struct {
                 null,
                 glib.Variant.newBoolean(@intFromBool(self.private().sidebar_show_paths)),
             ),
+            .initStateful(
+                "sidebar-media",
+                actionSidebarMedia,
+                null,
+                glib.Variant.newBoolean(@intFromBool(self.private().media_enabled)),
+            ),
             .init("toggle-pin-tab", actionTogglePinTab, null),
             .init("set-tab-group", actionSetTabGroup, s_variant_type),
             .init("new-tab-group", actionNewTabGroup, null),
@@ -531,6 +563,79 @@ pub const Window = extern struct {
         };
 
         ext.actions.add(Self, self, &actions);
+
+        // One checkbox action per pet: win.pet-<id>.
+        var pet_actions: [pet_sprites.pets.len]ext.actions.Action(Self) = undefined;
+        inline for (pet_sprites.pets, 0..) |p, i| {
+            const S = struct {
+                fn cb(action: *gio.SimpleAction, _: ?*glib.Variant, win: *Self) callconv(.c) void {
+                    win.togglePet(action, i);
+                }
+            };
+            pet_actions[i] = .initStateful(
+                "pet-" ++ p.id,
+                S.cb,
+                null,
+                glib.Variant.newBoolean(@intFromBool(self.private().pets_mask & (@as(u32, 1) << i) != 0)),
+            );
+        }
+        ext.actions.add(Self, self, &pet_actions);
+    }
+
+    fn togglePet(self: *Self, action: *gio.SimpleAction, index: u5) void {
+        const priv = self.private();
+        priv.pets_mask ^= @as(u32, 1) << index;
+        action.setState(glib.Variant.newBoolean(@intFromBool(priv.pets_mask & (@as(u32, 1) << index) != 0)));
+        priv.sidebar_pets.setPets(priv.pets_mask);
+        self.syncSidebarExtras();
+        self.saveSidebarState();
+    }
+
+    fn actionSidebarMedia(
+        action: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        priv.media_enabled = !priv.media_enabled;
+        action.setState(glib.Variant.newBoolean(@intFromBool(priv.media_enabled)));
+        self.syncSidebarExtras();
+        self.saveSidebarState();
+    }
+
+    /// Show/run the pets and media card only in the expanded sidebar, and
+    /// only animate while the window is focused.
+    fn syncSidebarExtras(self: *Self) void {
+        const priv = self.private();
+        const expanded = self.getSidebarVisible() and priv.sidebar_mode == .expanded;
+        const active = self.as(gtk.Window).isActive() != 0;
+
+        priv.sidebar_media.setEnabled(priv.media_enabled and expanded);
+        priv.sidebar_media.setActive(expanded and active);
+
+        const pets_shown = expanded and priv.pets_mask != 0;
+        priv.sidebar_pets.as(gtk.Widget).setVisible(@intFromBool(pets_shown));
+        priv.sidebar_pets.setRunning(pets_shown and active);
+    }
+
+    /// Pets get alarmed while any tab needs attention.
+    fn updatePetsAlarm(self: *Self) void {
+        const priv = self.private();
+        var alarm = false;
+        var i: c_int = 0;
+        while (i < priv.tab_view.getNPages()) : (i += 1) {
+            if (priv.tab_view.getNthPage(i).getNeedsAttention() != 0) alarm = true;
+        }
+        priv.sidebar_pets.setAlarm(alarm);
+    }
+
+    fn pageNeedsAttention(_: *adw.TabPage, _: *gobject.ParamSpec, self: *Self) callconv(.c) void {
+        self.updatePetsAlarm();
+    }
+
+    /// A command finished in one of this window's terminals.
+    pub fn notifyCommandFinished(self: *Self, success: bool) void {
+        self.private().sidebar_pets.celebrate(success);
     }
 
     /// Winproto backend for this window.
@@ -1323,6 +1428,7 @@ pub const Window = extern struct {
             "sidebar-accent",
             "sidebar-glass",
             "sidebar-show-paths",
+            "sidebar-media",
             "set-tab-group",
             "new-tab-group",
         }) |name| {
@@ -1341,6 +1447,7 @@ pub const Window = extern struct {
 
         // Full rows vs compact badges.
         self.queueSidebarRebuild();
+        self.syncSidebarExtras();
     }
 
     fn saveSidebarState(self: *Self) void {
@@ -1352,6 +1459,8 @@ pub const Window = extern struct {
             .accent = priv.sidebar_accent,
             .glass = priv.sidebar_glass,
             .show_paths = priv.sidebar_show_paths,
+            .pets = priv.pets_mask,
+            .media = priv.media_enabled,
         });
     }
 
@@ -2269,6 +2378,9 @@ pub const Window = extern struct {
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
+        // Pets nap and the media card stops ticking while unfocused.
+        self.syncSidebarExtras();
+
         // Hide quick-terminal if set to autohide
         if (self.isQuickTerminal()) {
             if (self.getConfig()) |cfg| {
@@ -2671,6 +2783,7 @@ pub const Window = extern struct {
         page.setNeedsAttention(@intFromBool(false));
 
         self.updateSidebarSelection();
+        self.updatePetsAlarm();
     }
 
     fn tabViewPageReordered(
@@ -2699,6 +2812,15 @@ pub const Window = extern struct {
             tabCloseRequest,
             self,
             .{},
+        );
+
+        // Sidebar pets react to tabs that need attention.
+        _ = gobject.Object.signals.notify.connect(
+            page,
+            *Self,
+            pageNeedsAttention,
+            self,
+            .{ .detail = "needs-attention" },
         );
 
         // Attach listeners for the surface.
@@ -2731,6 +2853,16 @@ pub const Window = extern struct {
         _: c_int,
         self: *Self,
     ) callconv(.c) void {
+        _ = gobject.signalHandlersDisconnectMatched(
+            page.as(gobject.Object),
+            .{ .data = true },
+            0,
+            0,
+            null,
+            null,
+            self,
+        );
+
         // We need to get the tab to disconnect the signals.
         const child = page.getChild();
         const tab = gobject.ext.cast(Tab, child) orelse return;
@@ -3263,6 +3395,8 @@ pub const Window = extern struct {
             gobject.ext.ensureType(Surface);
             gobject.ext.ensureType(Tab);
             gobject.ext.ensureType(TabSidebarRow);
+            gobject.ext.ensureType(SidebarMedia);
+            gobject.ext.ensureType(SidebarPets);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
@@ -3302,6 +3436,8 @@ pub const Window = extern struct {
             class.bindTemplateChildPrivate("sidebar_content", .{});
             class.bindTemplateChildPrivate("sidebar_guide", .{});
             class.bindTemplateChildPrivate("sidebar_list", .{});
+            class.bindTemplateChildPrivate("sidebar_media", .{});
+            class.bindTemplateChildPrivate("sidebar_pets", .{});
             class.bindTemplateChildPrivate("tab_context_menu", .{});
 
             // Template Callbacks

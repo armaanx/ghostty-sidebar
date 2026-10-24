@@ -2790,7 +2790,16 @@ const Action = struct {
         switch (target) {
             .app => return false,
             .surface => |surface| {
-                return surface.rt_surface.gobj().commandFinished(value);
+                const gobj = surface.rt_surface.gobj();
+
+                // Sidebar pets react to commands that ran a while.
+                if (value.duration.duration >= 3 * std.time.ns_per_s) {
+                    if (ext.getAncestor(Window, gobj.as(gtk.Widget))) |window| {
+                        window.notifyCommandFinished(value.exit_code == null or value.exit_code.? == 0);
+                    }
+                }
+
+                return gobj.commandFinished(value);
             },
         }
     }

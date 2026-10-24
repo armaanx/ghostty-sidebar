@@ -12,6 +12,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const configpkg = @import("../../config.zig");
+const sidebar_pets = @import("class/sidebar_pets.zig");
 const internal_os = @import("../../os/main.zig");
 
 const log = std.log.scoped(.gtk_ghostty_sidebar_state);
@@ -27,6 +28,9 @@ pub const State = struct {
     accent: ?Color = null,
     glass: ?bool = null,
     show_paths: ?bool = null,
+    /// Bit mask over pet_sprites.pets.
+    pets: ?u32 = null,
+    media: ?bool = null,
 };
 
 const max_file_size = 4096;
@@ -71,6 +75,11 @@ pub fn load(alloc: Allocator) State {
         } else if (std.mem.eql(u8, key, "show-paths")) {
             if (std.mem.eql(u8, value, "true")) result.show_paths = true;
             if (std.mem.eql(u8, value, "false")) result.show_paths = false;
+        } else if (std.mem.eql(u8, key, "pets")) {
+            result.pets = sidebar_pets.maskFromList(value);
+        } else if (std.mem.eql(u8, key, "media")) {
+            if (std.mem.eql(u8, value, "true")) result.media = true;
+            if (std.mem.eql(u8, value, "false")) result.media = false;
         }
     }
 
@@ -90,7 +99,7 @@ fn saveImpl(alloc: Allocator, state: State) !void {
     defer alloc.free(p);
     if (std.fs.path.dirname(p)) |dir| try std.fs.cwd().makePath(dir);
 
-    var buf: [512]u8 = undefined;
+    var buf: [1024]u8 = undefined;
     var w: std.Io.Writer = .fixed(&buf);
     try w.writeAll("# Remembered ghostty-sidebar layout. Delete to reset to config values.\n");
     if (state.width) |v| try w.print("width = {d}\n", .{v});
@@ -99,6 +108,11 @@ fn saveImpl(alloc: Allocator, state: State) !void {
     if (state.accent) |c| try w.print("accent = #{x:0>2}{x:0>2}{x:0>2}\n", .{ c.r, c.g, c.b });
     if (state.glass) |v| try w.print("glass = {}\n", .{v});
     if (state.show_paths) |v| try w.print("show-paths = {}\n", .{v});
+    if (state.pets) |mask| {
+        var pbuf: [256]u8 = undefined;
+        try w.print("pets = {s}\n", .{sidebar_pets.listFromMask(mask, &pbuf)});
+    }
+    if (state.media) |v| try w.print("media = {}\n", .{v});
 
     const tmp = try std.fmt.allocPrint(alloc, "{s}.tmp", .{p});
     defer alloc.free(tmp);

@@ -190,6 +190,20 @@ template $GhosttyWindow: Adw.ApplicationWindow {
                 hexpand: true;
               }
 
+              Gtk.Button {
+                styles [
+                  "flat",
+                  "sidebar-collapse",
+                ]
+
+                visible: bind template.sidebar-compact inverted;
+                icon-name: "tab-new-symbolic";
+                tooltip-text: _("New Tab");
+                can-focus: false;
+                focus-on-click: false;
+                clicked => $new_tab();
+              }
+
               Gtk.ToggleButton {
                 styles [
                   "flat",
@@ -236,31 +250,9 @@ template $GhosttyWindow: Adw.ApplicationWindow {
               }
             }
 
-            Gtk.Button {
-              styles [
-                "sidebar-new-tab",
-              ]
+            $GhosttySidebarMedia sidebar_media {}
 
-              clicked => $new_tab();
-              tooltip-text: _("New Tab");
-              can-focus: false;
-              focus-on-click: false;
-
-              child: Gtk.Box {
-                orientation: horizontal;
-                spacing: 8;
-                halign: center;
-
-                Gtk.Image {
-                  icon-name: "tab-new-symbolic";
-                }
-
-                Gtk.Label {
-                  visible: bind template.sidebar-compact inverted;
-                  label: _("New Tab");
-                }
-              };
-            }
+            $GhosttySidebarPets sidebar_pets {}
           };
         }
 
@@ -622,6 +614,66 @@ menu main_menu {
       label: _("Show Paths in Sidebar");
       action: "win.sidebar-show-paths";
     }
+
+    item {
+      label: _("Show Media Controls");
+      action: "win.sidebar-media";
+    }
+
+    submenu {
+      label: _("Sidebar Pets");
+
+      item {
+        label: _("Boo the Ghost");
+        action: "win.pet-ghost";
+      }
+
+      item {
+        label: _("Rubber Duck Debugger");
+        action: "win.pet-duck";
+      }
+
+      item {
+        label: _("Cthulhu Jr.");
+        action: "win.pet-octopus";
+      }
+
+      item {
+        label: _("Sentient Toaster");
+        action: "win.pet-toaster";
+      }
+
+      item {
+        label: _("Gelatinous Slime");
+        action: "win.pet-slime";
+      }
+
+      item {
+        label: _("Sideways Crab");
+        action: "win.pet-crab";
+      }
+
+      item {
+        label: _("Lost UFO");
+        action: "win.pet-ufo";
+      }
+
+      item {
+        label: _("Dancing Banana");
+        action: "win.pet-banana";
+      }
+
+      item {
+        label: _("Haunted Floppy Disk");
+        action: "win.pet-floppy";
+      }
+
+      item {
+        label: _("Floating Eyeball");
+        action: "win.pet-eyeball";
+      }
+    }
+
   }
 
   section {

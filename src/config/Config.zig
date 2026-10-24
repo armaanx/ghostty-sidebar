@@ -3616,6 +3616,22 @@ else
 /// header or from the main menu.
 @"gtk-tabs-sidebar-show-paths": bool = true,
 
+/// Pixel-art pets that wander along the bottom of the vertical tab sidebar.
+/// A comma separated list of: ghost, duck, octopus, toaster, slime, crab,
+/// ufo, banana, floppy, eyeball. Set to an empty value to have no pets.
+/// When unset, the default is `ghost,duck,crab`. Pets can also be picked
+/// from the main menu. They only animate while the window is focused.
+@"gtk-tabs-sidebar-pets": ?[:0]const u8 = null,
+
+/// Show a now-playing card at the bottom of the vertical tab sidebar with
+/// controls for a media player (over MPRIS). It is hidden while the player
+/// isn't running. Can also be toggled from the main menu.
+@"gtk-tabs-sidebar-media": bool = true,
+
+/// MPRIS name of the media player for the sidebar card, as in
+/// `org.mpris.MediaPlayer2.<name>`. When unset, the default is `spotify`.
+@"gtk-tabs-sidebar-media-player": ?[:0]const u8 = null,
+
 /// Draw a colored ring around a split when it needs attention: when it
 /// rings the bell, or sends a desktop notification while unfocused. The
 /// ring clears when you focus the split.
