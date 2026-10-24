@@ -315,6 +315,7 @@ pub const Window = extern struct {
         sidebar: *gtk.Box,
         sidebar_handle: *gtk.Box,
         sidebar_content: *gtk.Box,
+        sidebar_guide: *gtk.Box,
         tab_context_menu: *gio.MenuModel,
 
         /// Vertical tab sidebar state, cycled by `cycle_tab_sidebar`.
@@ -1353,6 +1354,33 @@ pub const Window = extern struct {
         } else handle_left;
 
         priv.sidebar_width = clampSidebarWidth(@intFromFloat(@round(width)));
+        self.showSidebarGuide();
+    }
+
+    /// Position the drag guide line at the pending sidebar edge.
+    fn showSidebarGuide(self: *Self) void {
+        const priv = self.private();
+        const guide = priv.sidebar_guide.as(gtk.Widget);
+        const handle_width = priv.sidebar_handle.as(gtk.Widget).getWidth();
+        const x: c_int = if (self.sidebarOnRight())
+            priv.sidebar_layout.as(gtk.Widget).getWidth() - priv.sidebar_width - handle_width
+        else
+            priv.sidebar_width;
+        guide.setMarginStart(@max(0, x));
+        guide.setVisible(1);
+    }
+
+    fn sidebarDragEnd(
+        _: *gtk.GestureDrag,
+        _: f64,
+        _: f64,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        priv.sidebar_guide.as(gtk.Widget).setVisible(0);
+        if (priv.sidebar_mode != .expanded) return;
+
+        // Resize the terminal once, now that the drag is done.
         priv.sidebar.as(gtk.Widget).setSizeRequest(priv.sidebar_width, -1);
     }
 
@@ -2481,12 +2509,14 @@ pub const Window = extern struct {
             class.bindTemplateChildPrivate("sidebar", .{});
             class.bindTemplateChildPrivate("sidebar_handle", .{});
             class.bindTemplateChildPrivate("sidebar_content", .{});
+            class.bindTemplateChildPrivate("sidebar_guide", .{});
             class.bindTemplateChildPrivate("tab_context_menu", .{});
 
             // Template Callbacks
             class.bindTemplateCallback("cycle_sidebar", &btnCycleSidebar);
             class.bindTemplateCallback("sidebar_drag_begin", &sidebarDragBegin);
             class.bindTemplateCallback("sidebar_drag_update", &sidebarDragUpdate);
+            class.bindTemplateCallback("sidebar_drag_end", &sidebarDragEnd);
             class.bindTemplateCallback("realize", &windowRealize);
             class.bindTemplateCallback("new_tab", &btnNewTab);
             class.bindTemplateCallback("overview_create_tab", &tabOverviewCreateTab);

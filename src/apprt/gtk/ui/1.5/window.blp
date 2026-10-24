@@ -148,7 +148,8 @@ template $GhosttyWindow: Adw.ApplicationWindow {
         }
       }
 
-      Gtk.Box sidebar_layout {
+      Gtk.Overlay {
+      child: Gtk.Box sidebar_layout {
         // Vertical tab sidebar layout: [sidebar][resize handle][content].
         // For `gtk-tabs-location = right` the window code reverses the
         // order. The sidebar is only shown when tabs are vertical.
@@ -298,6 +299,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
           Gtk.GestureDrag {
             drag-begin => $sidebar_drag_begin();
             drag-update => $sidebar_drag_update();
+            drag-end => $sidebar_drag_end();
           }
         }
 
@@ -323,6 +325,22 @@ template $GhosttyWindow: Adw.ApplicationWindow {
             }
           }
         }
+      };
+
+      // Guide line shown while dragging the sidebar edge. The terminal is
+      // only resized when the drag ends, so the shell redraws its prompt
+      // once instead of on every pointer motion.
+      [overlay]
+      Gtk.Box sidebar_guide {
+        styles [
+          "sidebar-guide",
+        ]
+
+        visible: false;
+        can-target: false;
+        halign: start;
+        width-request: 2;
+      }
       }
     }
   };
