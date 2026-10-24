@@ -324,6 +324,7 @@ pub const Window = extern struct {
         sidebar_content: *gtk.Box,
         sidebar_guide: *gtk.Box,
         sidebar_list: *gtk.Box,
+        sidebar_clip: *gtk.ScrolledWindow,
         sidebar_media: *SidebarMedia,
         sidebar_pets: *SidebarPets,
         tab_context_menu: *gio.MenuModel,
@@ -1394,7 +1395,7 @@ pub const Window = extern struct {
             .compact => sidebar_compact_width,
             .expanded, .hidden => priv.sidebar_width,
         };
-        sidebar_widget.setSizeRequest(width, -1);
+        priv.sidebar_clip.as(gtk.Widget).setSizeRequest(width, -1);
 
         // CSS classes: side, compact and theme.
         toggleWidgetCssClass(sidebar_widget, "right", right);
@@ -2078,7 +2079,7 @@ pub const Window = extern struct {
         if (priv.sidebar_mode != .expanded) return;
 
         // Resize the terminal once, now that the drag is done.
-        priv.sidebar.as(gtk.Widget).setSizeRequest(priv.sidebar_width, -1);
+        priv.sidebar_clip.as(gtk.Widget).setSizeRequest(priv.sidebar_width, -1);
         self.saveSidebarState();
     }
 
@@ -3436,6 +3437,7 @@ pub const Window = extern struct {
             class.bindTemplateChildPrivate("sidebar_content", .{});
             class.bindTemplateChildPrivate("sidebar_guide", .{});
             class.bindTemplateChildPrivate("sidebar_list", .{});
+            class.bindTemplateChildPrivate("sidebar_clip", .{});
             class.bindTemplateChildPrivate("sidebar_media", .{});
             class.bindTemplateChildPrivate("sidebar_pets", .{});
             class.bindTemplateChildPrivate("tab_context_menu", .{});

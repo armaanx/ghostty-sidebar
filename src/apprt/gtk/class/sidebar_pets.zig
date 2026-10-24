@@ -101,9 +101,19 @@ pub const SidebarPets = extern struct {
 
         const fixed = gtk.Fixed.new();
         fixed.as(gtk.Widget).setSizeRequest(-1, strip_height);
-        fixed.as(gtk.Widget).setOverflow(.hidden);
         priv.fixed = fixed;
-        self.as(adw.Bin).setChild(fixed.as(gtk.Widget));
+
+        // A Fixed asks for enough width to hold its children, so pets near
+        // the right edge would widen the sidebar (and then walk further).
+        // The scrolled window with an "external" policy shows no scrollbar
+        // and doesn't pass the content width up, so the strip only takes
+        // the width the sidebar gives it.
+        const scroller = gtk.ScrolledWindow.new();
+        scroller.setPolicy(.external, .never);
+        scroller.setPropagateNaturalWidth(0);
+        scroller.setChild(fixed.as(gtk.Widget));
+        scroller.as(gtk.Widget).setOverflow(.hidden);
+        self.as(adw.Bin).setChild(scroller.as(gtk.Widget));
         self.as(gtk.Widget).addCssClass("sidebar-pets");
     }
 
@@ -331,8 +341,15 @@ pub const SidebarPets = extern struct {
             }
 
             priv.fixed.move(p.picture.as(gtk.Widget), p.x, y);
-            if (p.bubble) |b| priv.fixed.move(b.as(gtk.Widget), p.x + pet_px - 14, @max(0, y - 14));
+            if (p.bubble) |b| priv.fixed.move(b.as(gtk.Widget), self.bubbleX(p), @max(0, y - 14));
         }
+    }
+
+    /// Bubble sits at the pet's top corner but never past the right edge.
+    fn bubbleX(self: *Self, p: *const PetState) f64 {
+        const width: f64 = @floatFromInt(self.as(gtk.Widget).getWidth());
+        const x: f64 = p.x + pet_px - 14;
+        return @max(0, @min(x, width - 28));
     }
 
     fn showBubble(self: *Self, p: *PetState, text: [:0]const u8, ttl: u16) void {
@@ -341,7 +358,7 @@ pub const SidebarPets = extern struct {
         const label = gtk.Label.new(text.ptr);
         label.as(gtk.Widget).addCssClass("pet-bubble");
         label.as(gtk.Widget).setCanTarget(0);
-        priv.fixed.put(label.as(gtk.Widget), p.x + pet_px - 14, @max(0, groundY(p) - 14));
+        priv.fixed.put(label.as(gtk.Widget), self.bubbleX(p), @max(0, groundY(p) - 14));
         p.bubble = label;
         p.bubble_ttl = ttl;
     }

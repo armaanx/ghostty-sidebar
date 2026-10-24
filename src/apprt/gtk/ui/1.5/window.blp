@@ -164,6 +164,14 @@ template $GhosttyWindow: Adw.ApplicationWindow {
           transition-duration: 0;
           reveal-child: bind template.sidebar-visible;
 
+          // Clip: the sidebar is exactly as wide as its size request.
+          // Without this, any child with a large natural width (long
+          // labels, the media card, the pets strip) could widen it.
+          child: Gtk.ScrolledWindow sidebar_clip {
+          hscrollbar-policy: external;
+          vscrollbar-policy: never;
+          propagate-natural-width: false;
+
           child: Gtk.Box sidebar {
             styles [
               "ghostty-tab-sidebar",
@@ -253,6 +261,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
             $GhosttySidebarMedia sidebar_media {}
 
             $GhosttySidebarPets sidebar_pets {}
+          };
           };
         }
 
