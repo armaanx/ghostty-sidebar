@@ -1293,17 +1293,15 @@ pub const Window = extern struct {
             );
         }
 
-        // Glass: translucent sidebar. The window background must be
-        // transparent for anything behind the window to show through.
+        // Glass: translucent, frosted tab rows. The sidebar and window stay
+        // opaque.
         const vertical = self.sidebarIsVertical();
         const glass = priv.sidebar_glass and vertical;
         toggleWidgetCssClass(sidebar_widget, "glass", glass);
-        if (priv.config) |config_obj| {
-            self.toggleCssClass(
-                "background",
-                config_obj.get().@"background-opacity" >= 1 and !glass,
-            );
-        }
+
+        // Hide the sidebar widget itself when hidden; a collapsed revealer
+        // would still reserve its width.
+        sidebar.setVisible(@intFromBool(self.getSidebarVisible()));
 
         applySidebarAccent(self.as(gtk.Widget), priv.sidebar_accent);
 

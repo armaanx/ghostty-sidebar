@@ -3606,11 +3606,9 @@ else
 /// main menu.
 @"gtk-tabs-sidebar-accent": Color = .{ .r = 0x4e, .g = 0xa1, .b = 0xff },
 
-/// Frosted "glass" look for the vertical tab sidebar: translucent sidebar
-/// that shows what's behind the window. GNOME does not blur behind apps on
-/// its own; for real blur use a compositor or extension that blurs windows
-/// (for example KDE, or the Blur my Shell GNOME extension). Can also be
-/// toggled from the main menu.
+/// Frosted "glass" look for the tabs in the vertical tab sidebar: tab rows
+/// and compact badges become translucent cards with a soft highlight. The
+/// sidebar itself stays opaque. Can also be toggled from the main menu.
 @"gtk-tabs-sidebar-glass": bool = false,
 
 /// Draw a colored ring around a split when it needs attention: when it

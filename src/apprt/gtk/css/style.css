@@ -204,7 +204,6 @@ window {
   --sb-border: alpha(currentColor, 0.10);
   --sb-badge: alpha(currentColor, 0.07);
   --sb-ring: alpha(currentColor, 0.35);
-  --sb-glass-tint: rgba(255, 255, 255, 0.07);
 
   background-color: var(--sb-bg);
   color: var(--sb-fg);
@@ -250,7 +249,6 @@ window {
   --sb-bg: #f4f4f5; --sb-fg: #1f1f23; --sb-muted: #6b6b75;
   --sb-hover: #e8e8eb; --sb-selected: #dcdce1; --sb-border: #dedee2;
   --sb-badge: #e4e4e8; --sb-ring: #9a9aa5;
-  --sb-glass-tint: rgba(0, 0, 0, 0.05);
 }
 
 .ghostty-tab-sidebar.left { border-right: 1px solid var(--sb-border); }
@@ -483,35 +481,105 @@ window {
 }
 
 /*
- * Glass: translucent sidebar over whatever is behind the window. GNOME
- * doesn't blur behind apps by itself; with a blurring compositor or
- * extension this becomes frosted glass.
+ * Glass: the tabs become translucent frosted cards over the (opaque)
+ * sidebar: a light gradient tint, a hairline border and a top highlight.
+ * --sb-glass-hi / --sb-glass-lo are white on dark themes, black on paper.
  */
-.ghostty-tab-sidebar.glass {
-  background-color: color-mix(in srgb, var(--sb-bg) 58%, transparent);
-  background-image: linear-gradient(180deg, var(--sb-glass-tint), transparent 45%);
+.ghostty-tab-sidebar {
+  --sb-glass-hi: rgba(255, 255, 255, 0.10);
+  --sb-glass-lo: rgba(255, 255, 255, 0.03);
+  --sb-glass-edge: rgba(255, 255, 255, 0.09);
+  --sb-glass-shine: rgba(255, 255, 255, 0.12);
 }
 
-.ghostty-tab-sidebar.glass.left { box-shadow: inset -1px 0 0 var(--sb-glass-tint); }
-.ghostty-tab-sidebar.glass.right { box-shadow: inset 1px 0 0 var(--sb-glass-tint); }
+.ghostty-tab-sidebar.theme-paper {
+  --sb-glass-hi: rgba(255, 255, 255, 0.75);
+  --sb-glass-lo: rgba(255, 255, 255, 0.40);
+  --sb-glass-edge: rgba(0, 0, 0, 0.08);
+  --sb-glass-shine: rgba(255, 255, 255, 0.9);
+}
+
+.ghostty-tab-sidebar.glass .tab-row {
+  margin: 3px 0;
+  border-radius: 12px;
+  background-color: transparent;
+  background-image: linear-gradient(180deg, var(--sb-glass-hi), var(--sb-glass-lo));
+  box-shadow:
+    inset 0 0 0 1px var(--sb-glass-edge),
+    inset 0 1px 0 var(--sb-glass-shine),
+    0 2px 8px rgba(0, 0, 0, 0.18);
+}
 
 .ghostty-tab-sidebar.glass .tab-row:hover {
-  background-color: var(--sb-glass-tint);
+  background-image: linear-gradient(180deg, var(--sb-glass-shine), var(--sb-glass-hi));
 }
 
 .ghostty-tab-sidebar.glass .tab-row.selected {
-  background-color: color-mix(in srgb, var(--sb-selected) 70%, transparent);
-  box-shadow: inset 0 1px 0 var(--sb-glass-tint), 0 4px 14px rgba(0, 0, 0, 0.25);
+  background-image: linear-gradient(180deg,
+    color-mix(in srgb, var(--sb-accent) 22%, var(--sb-glass-hi)),
+    color-mix(in srgb, var(--sb-accent) 10%, var(--sb-glass-lo)));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--sb-accent) 35%, var(--sb-glass-edge)),
+    inset 0 1px 0 var(--sb-glass-shine),
+    0 4px 14px rgba(0, 0, 0, 0.28);
 }
 
-.ghostty-tab-sidebar.glass .tab-badge,
-.ghostty-tab-sidebar.glass .sidebar-new-tab,
-.ghostty-tab-sidebar.glass .tab-group-count {
-  background-color: var(--sb-glass-tint);
-  box-shadow: inset 0 0 0 1px var(--sb-glass-tint);
+/* Colored tabs tint their glass card instead of the accent. */
+.ghostty-tab-sidebar.glass .tab-row.selected.has-color {
+  background-color: transparent;
+  background-image: linear-gradient(180deg,
+    color-mix(in srgb, var(--tab-color) 26%, var(--sb-glass-hi)),
+    color-mix(in srgb, var(--tab-color) 12%, var(--sb-glass-lo)));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--tab-color) 40%, var(--sb-glass-edge)),
+    inset 0 1px 0 var(--sb-glass-shine),
+    0 4px 14px rgba(0, 0, 0, 0.28);
 }
 
-.ghostty-tab-sidebar.glass.compact .tab-row.selected { background: none; box-shadow: none; }
+/* Drop markers stay visible on glass cards. */
+.ghostty-tab-sidebar.glass .tab-row.drop-before {
+  box-shadow: inset 0 2px 0 var(--sb-accent), inset 0 0 0 1px var(--sb-glass-edge);
+}
+
+.ghostty-tab-sidebar.glass .tab-row.drop-after {
+  box-shadow: inset 0 -2px 0 var(--sb-accent), inset 0 0 0 1px var(--sb-glass-edge);
+}
+
+/* Compact mode: the badges are the glass cards. */
+.ghostty-tab-sidebar.glass.compact .tab-row,
+.ghostty-tab-sidebar.glass.compact .tab-row:hover,
+.ghostty-tab-sidebar.glass.compact .tab-row.selected,
+.ghostty-tab-sidebar.glass.compact .tab-row.selected.has-color {
+  margin: 3px 0;
+  background: none;
+  box-shadow: none;
+}
+
+.ghostty-tab-sidebar.glass .tab-badge {
+  background-color: transparent;
+  background-image: linear-gradient(180deg, var(--sb-glass-hi), var(--sb-glass-lo));
+  box-shadow:
+    inset 0 0 0 1px var(--sb-glass-edge),
+    inset 0 1px 0 var(--sb-glass-shine),
+    0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.ghostty-tab-sidebar.glass.compact .tab-row.selected .tab-badge {
+  background-image: linear-gradient(180deg,
+    color-mix(in srgb, var(--sb-accent) 24%, var(--sb-glass-hi)),
+    color-mix(in srgb, var(--sb-accent) 10%, var(--sb-glass-lo)));
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in srgb, var(--sb-accent) 50%, var(--sb-glass-edge)),
+    inset 0 1px 0 var(--sb-glass-shine),
+    0 4px 12px rgba(0, 0, 0, 0.28);
+}
+
+.ghostty-tab-sidebar.glass .tab-row.has-color .tab-badge {
+  box-shadow:
+    inset 0 -3px 0 var(--tab-color),
+    inset 0 0 0 1px var(--sb-glass-edge),
+    inset 0 1px 0 var(--sb-glass-shine);
+}
 
 /* Attention ring around a split that rang the bell or sent a
  * notification while unfocused. Replaces the default bell border look. */
