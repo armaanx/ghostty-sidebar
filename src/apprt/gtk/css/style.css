@@ -631,8 +631,8 @@ window {
  */
 .sidebar-media {
   margin: 4px 8px 4px 8px;
-  padding: 5px 6px;
-  border-radius: 10px;
+  padding: 10px 8px 6px 8px;
+  border-radius: 12px;
   background-color: var(--sb-badge);
   box-shadow: inset 0 0 0 1px var(--sb-border);
 }
@@ -646,16 +646,16 @@ window {
 }
 
 .media-art {
-  min-width: 36px;
-  min-height: 36px;
-  border-radius: 7px;
+  min-width: 88px;
+  min-height: 88px;
+  border-radius: 10px;
   background-color: var(--sb-selected);
   color: var(--sb-muted);
 }
 
 .media-button {
-  min-width: 28px;
-  min-height: 28px;
+  min-width: 30px;
+  min-height: 30px;
   padding: 0;
   color: var(--sb-fg);
 }

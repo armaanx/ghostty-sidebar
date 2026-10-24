@@ -1,5 +1,5 @@
-//! Compact now-playing card for the vertical tab sidebar: album cover,
-//! play/pause and next. Talks to a media player over MPRIS (the standard
+//! Compact now-playing card for the vertical tab sidebar: album cover with
+//! previous / play-pause / next below it. Talks to a media player over MPRIS (the standard
 //! D-Bus interface Linux players expose, including the Spotify desktop
 //! app). Hidden while the player isn't running. Event driven: no timers.
 const std = @import("std");
@@ -281,6 +281,10 @@ pub const SidebarMedia = extern struct {
     //---------------------------------------------------------------
     // Template callbacks
 
+    fn previousClicked(_: *gtk.Button, self: *Self) callconv(.c) void {
+        self.callPlayer("Previous");
+    }
+
     fn playPauseClicked(_: *gtk.Button, self: *Self) callconv(.c) void {
         self.callPlayer("PlayPause");
     }
@@ -337,6 +341,7 @@ pub const SidebarMedia = extern struct {
             class.bindTemplateChildPrivate("art_frame", .{});
             class.bindTemplateChildPrivate("play_button", .{});
 
+            class.bindTemplateCallback("previous_clicked", &previousClicked);
             class.bindTemplateCallback("play_pause_clicked", &playPauseClicked);
             class.bindTemplateCallback("next_clicked", &nextClicked);
 
