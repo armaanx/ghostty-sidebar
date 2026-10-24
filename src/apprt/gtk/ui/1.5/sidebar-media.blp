@@ -1,6 +1,8 @@
 using Gtk 4.0;
 using Adw 1;
 
+// Compact now-playing card: small album cover, play/pause and next.
+// The track title and artist are the cover's tooltip.
 template $GhosttySidebarMedia: Adw.Bin {
   styles [
     "sidebar-media",
@@ -9,135 +11,55 @@ template $GhosttySidebarMedia: Adw.Bin {
   visible: false;
 
   child: Gtk.Box {
-    orientation: vertical;
+    orientation: horizontal;
     spacing: 8;
 
-    Gtk.Box {
-      orientation: horizontal;
-      spacing: 10;
-
-      Adw.Bin {
-        styles [
-          "media-art",
-        ]
-
-        overflow: hidden;
-        valign: center;
-
-        Gtk.Picture art {
-          width-request: 46;
-          height-request: 46;
-          content-fit: cover;
-          can-shrink: true;
-        }
-      }
-
-      Gtk.Box {
-        orientation: vertical;
-        valign: center;
-        hexpand: true;
-        spacing: 2;
-
-        Gtk.Label title_label {
-          styles [
-            "media-title",
-          ]
-
-          xalign: 0;
-          ellipsize: end;
-          max-width-chars: 1;
-        }
-
-        Gtk.Label artist_label {
-          styles [
-            "media-artist",
-          ]
-
-          xalign: 0;
-          ellipsize: end;
-          max-width-chars: 1;
-        }
-      }
-    }
-
-    Gtk.Scale progress {
+    Adw.Bin art_frame {
       styles [
-        "media-progress",
+        "media-art",
       ]
 
-      draw-value: false;
+      overflow: hidden;
+      valign: center;
+      halign: start;
       hexpand: true;
-      can-focus: false;
-      focus-on-click: false;
 
-      adjustment: Gtk.Adjustment {
-        lower: 0;
-        upper: 1;
-        step-increment: 5;
-      };
-
-      change-value => $progress_change_value();
+      // GtkImage draws the cover at exactly pixel-size, unlike GtkPicture
+      // which asks for the image's full resolution.
+      Gtk.Image art {
+        pixel-size: 36;
+        icon-name: "audio-x-generic-symbolic";
+      }
     }
 
-    Gtk.CenterBox {
-      start-widget: Gtk.Label position_label {
-        styles [
-          "media-time",
-        ]
-      };
+    Gtk.Button play_button {
+      styles [
+        "circular",
+        "media-button",
+        "media-play",
+      ]
 
-      center-widget: Gtk.Box {
-        orientation: horizontal;
-        spacing: 4;
+      valign: center;
+      icon-name: "media-playback-start-symbolic";
+      tooltip-text: _("Play/Pause");
+      can-focus: false;
+      focus-on-click: false;
+      clicked => $play_pause_clicked();
+    }
 
-        Gtk.Button {
-          styles [
-            "flat",
-            "circular",
-            "media-button",
-          ]
+    Gtk.Button {
+      styles [
+        "flat",
+        "circular",
+        "media-button",
+      ]
 
-          icon-name: "media-skip-backward-symbolic";
-          tooltip-text: _("Previous");
-          can-focus: false;
-          focus-on-click: false;
-          clicked => $previous_clicked();
-        }
-
-        Gtk.Button play_button {
-          styles [
-            "circular",
-            "media-button",
-            "media-play",
-          ]
-
-          icon-name: "media-playback-start-symbolic";
-          tooltip-text: _("Play/Pause");
-          can-focus: false;
-          focus-on-click: false;
-          clicked => $play_pause_clicked();
-        }
-
-        Gtk.Button {
-          styles [
-            "flat",
-            "circular",
-            "media-button",
-          ]
-
-          icon-name: "media-skip-forward-symbolic";
-          tooltip-text: _("Next");
-          can-focus: false;
-          focus-on-click: false;
-          clicked => $next_clicked();
-        }
-      };
-
-      end-widget: Gtk.Label length_label {
-        styles [
-          "media-time",
-        ]
-      };
+      valign: center;
+      icon-name: "media-skip-forward-symbolic";
+      tooltip-text: _("Next");
+      can-focus: false;
+      focus-on-click: false;
+      clicked => $next_clicked();
     }
   };
 }

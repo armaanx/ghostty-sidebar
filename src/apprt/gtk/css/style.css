@@ -627,12 +627,12 @@ window {
 }
 
 /*
- * Now-playing media card (MPRIS / Spotify)
+ * Now-playing media card (MPRIS / Spotify): one compact row.
  */
 .sidebar-media {
-  margin: 6px 8px 6px 8px;
-  padding: 10px;
-  border-radius: 12px;
+  margin: 4px 8px 4px 8px;
+  padding: 5px 6px;
+  border-radius: 10px;
   background-color: var(--sb-badge);
   box-shadow: inset 0 0 0 1px var(--sb-border);
 }
@@ -642,70 +642,29 @@ window {
   background-image: linear-gradient(180deg, var(--sb-glass-hi), var(--sb-glass-lo));
   box-shadow:
     inset 0 0 0 1px var(--sb-glass-edge),
-    inset 0 1px 0 var(--sb-glass-shine),
-    0 2px 8px rgba(0, 0, 0, 0.18);
+    inset 0 1px 0 var(--sb-glass-shine);
 }
 
 .media-art {
-  min-width: 46px;
-  min-height: 46px;
-  border-radius: 8px;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 7px;
   background-color: var(--sb-selected);
-}
-
-.media-title {
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.media-artist {
-  font-size: 12.5px;
-  color: var(--sb-muted);
-}
-
-.media-time {
-  font-family: monospace;
-  font-size: 11px;
   color: var(--sb-muted);
 }
 
 .media-button {
-  min-width: 30px;
-  min-height: 30px;
+  min-width: 28px;
+  min-height: 28px;
   padding: 0;
   color: var(--sb-fg);
 }
 
 .media-play {
-  min-width: 34px;
-  min-height: 34px;
   background-color: var(--sb-accent);
   color: #101014;
 }
 
 .media-play:hover {
   background-color: color-mix(in srgb, var(--sb-accent) 85%, white);
-}
-
-.media-progress {
-  padding: 4px 0;
-}
-
-.media-progress trough {
-  min-height: 4px;
-  border-radius: 2px;
-  background-color: var(--sb-border);
-}
-
-.media-progress highlight {
-  border-radius: 2px;
-  background-color: var(--sb-accent);
-}
-
-.media-progress slider {
-  min-width: 10px;
-  min-height: 10px;
-  margin: -4px;
-  background-color: var(--sb-fg);
-  box-shadow: none;
 }

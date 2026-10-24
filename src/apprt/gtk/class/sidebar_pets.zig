@@ -60,6 +60,9 @@ const PetState = struct {
     bubble_ttl: u16 = 0,
     x: f32 = 0,
     dir: f32 = 1,
+    /// Per-pet speed multiplier, re-rolled whenever it starts walking, so
+    /// pets don't march in lockstep.
+    speed_mul: f32 = 1,
     mood: Mood = .walk,
     mood_ticks: u16 = 0,
     tick: u32 = 0,
@@ -134,16 +137,36 @@ pub const SidebarPets = extern struct {
         self.clearPets();
 
         const width: f32 = @floatFromInt(@max(self.as(gtk.Widget).getWidth(), 200));
+
+        // Spread pets over evenly spaced, shuffled slots with some jitter so
+        // they don't start on top of each other.
+        const count: usize = @popCount(mask & ((@as(u32, 1) << sprites.pets.len) - 1));
+        var slots: [sprites.pets.len]usize = undefined;
+        for (0..count) |k| slots[k] = k;
+        self.rand().shuffle(usize, slots[0..count]);
+        var slot_i: usize = 0;
+
         for (&sprites.pets, 0..) |*def, i| {
             if (mask & (@as(u32, 1) << @intCast(i)) == 0) continue;
+            const slot = slots[slot_i];
+            slot_i += 1;
+            const span = @max(width - pet_px, 1);
+            const cell = span / @as(f32, @floatFromInt(@max(count, 1)));
+            const jitter = (self.rand().float(f32) - 0.5) * cell * 0.5;
+            const start_x = std.math.clamp(
+                (@as(f32, @floatFromInt(slot)) + 0.5) * cell + jitter,
+                0,
+                span,
+            );
             const state = alloc().create(PetState) catch continue;
             state.* = .{
                 .owner = self,
                 .def = def,
                 .picture = undefined,
                 .textures = undefined,
-                .x = self.rand().float(f32) * (width - pet_px),
+                .x = start_x,
                 .dir = if (self.rand().boolean()) 1 else -1,
+                .speed_mul = 0.7 + self.rand().float(f32) * 0.65,
                 .mood = if (priv.running) .walk else .sleep,
             };
             for (0..3) |f| {
@@ -263,7 +286,7 @@ pub const SidebarPets = extern struct {
 
             switch (p.mood) {
                 .walk => {
-                    p.x += p.dir * p.def.speed;
+                    p.x += p.dir * p.def.speed * p.speed_mul;
                     if (p.x <= 0) {
                         p.x = 0;
                         p.dir = 1;
@@ -273,9 +296,11 @@ pub const SidebarPets = extern struct {
                     }
                     if (r.uintLessThan(u16, 100) < 2) {
                         p.mood = .idle;
-                        p.mood_ticks = 15 + r.uintLessThan(u16, 30);
-                    } else if (r.uintLessThan(u16, 1000) < 4) {
+                        p.mood_ticks = 8 + r.uintLessThan(u16, 40);
+                    } else if (r.uintLessThan(u16, 1000) < 10) {
                         p.dir = -p.dir;
+                    } else if (r.uintLessThan(u16, 1000) < 15) {
+                        p.speed_mul = 0.7 + r.float(f32) * 0.65;
                     }
                 },
                 .idle => {
@@ -285,15 +310,14 @@ pub const SidebarPets = extern struct {
                             p.mood = .sleep;
                             p.mood_ticks = 60 + r.uintLessThan(u16, 120);
                         } else {
-                            p.mood = .walk;
-                            if (r.boolean()) p.dir = -p.dir;
+                            self.startWalking(p);
                         }
                     }
                 },
                 .sleep => {
                     if (p.tick % 25 == 0) self.showBubble(p, "z", 10);
                     if (p.mood_ticks > 0) p.mood_ticks -= 1;
-                    if (p.mood_ticks == 0) p.mood = .walk;
+                    if (p.mood_ticks == 0) self.startWalking(p);
                 },
                 .jump, .cheer => {
                     p.jump_t += 1;
@@ -310,6 +334,41 @@ pub const SidebarPets = extern struct {
 
             // Keep inside the strip if the sidebar was resized.
             p.x = std.math.clamp(p.x, 0, max_x);
+        }
+
+        self.separate();
+    }
+
+    fn startWalking(self: *Self, p: *PetState) void {
+        const r = self.rand();
+        p.mood = .walk;
+        if (r.boolean()) p.dir = -p.dir;
+        p.speed_mul = 0.7 + r.float(f32) * 0.65;
+    }
+
+    /// Keep pets from bunching up: a walking pet that runs into another
+    /// one mostly turns around, sometimes stops for a moment.
+    fn separate(self: *Self) void {
+        const priv = self.private();
+        const r = self.rand();
+        const personal_space: f32 = pet_px * 0.85;
+        for (priv.pets.items) |p| {
+            if (p.mood != .walk) continue;
+            for (priv.pets.items) |q| {
+                if (p == q) continue;
+                const dx = q.x - p.x;
+                if (@abs(dx) >= personal_space) continue;
+                // Only react when heading toward the other pet.
+                if (dx * p.dir <= 0) continue;
+                if (r.uintLessThan(u16, 100) < 75) {
+                    p.dir = -p.dir;
+                    p.speed_mul = 0.7 + r.float(f32) * 0.65;
+                } else {
+                    p.mood = .idle;
+                    p.mood_ticks = 5 + r.uintLessThan(u16, 20);
+                }
+                break;
+            }
         }
     }
 
