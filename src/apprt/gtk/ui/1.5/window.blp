@@ -190,6 +190,20 @@ template $GhosttyWindow: Adw.ApplicationWindow {
                 hexpand: true;
               }
 
+              Gtk.ToggleButton {
+                styles [
+                  "flat",
+                  "sidebar-collapse",
+                ]
+
+                visible: bind template.sidebar-compact inverted;
+                action-name: "win.sidebar-show-paths";
+                icon-name: "folder-symbolic";
+                tooltip-text: _("Show Paths");
+                can-focus: false;
+                focus-on-click: false;
+              }
+
               Gtk.Button {
                 styles [
                   "flat",
@@ -602,6 +616,11 @@ menu main_menu {
     item {
       label: _("Glass Sidebar");
       action: "win.sidebar-glass";
+    }
+
+    item {
+      label: _("Show Paths in Sidebar");
+      action: "win.sidebar-show-paths";
     }
   }
 

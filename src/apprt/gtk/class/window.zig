@@ -338,8 +338,11 @@ pub const Window = extern struct {
         /// Sidebar accent color (attention dots, guide, attention ring).
         sidebar_accent: SidebarColor = .{ .r = 0x4e, .g = 0xa1, .b = 0xff },
 
-        /// Translucent "glass" sidebar.
+        /// Translucent "glass" tab cards.
         sidebar_glass: bool = false,
+
+        /// Show working directories under tab titles.
+        sidebar_show_paths: bool = true,
 
         /// Pending idle source that rebuilds the sidebar rows.
         sidebar_rebuild_source: ?c_uint = null,
@@ -406,6 +409,7 @@ pub const Window = extern struct {
         );
         priv.sidebar_accent = config.@"gtk-tabs-sidebar-accent";
         priv.sidebar_glass = config.@"gtk-tabs-sidebar-glass";
+        priv.sidebar_show_paths = config.@"gtk-tabs-sidebar-show-paths";
         {
             const saved = sidebar_state.load(Application.default().allocator());
             if (saved.width) |v| priv.sidebar_width = clampSidebarWidth(v);
@@ -413,6 +417,7 @@ pub const Window = extern struct {
             if (saved.theme) |v| priv.sidebar_theme = v;
             if (saved.accent) |v| priv.sidebar_accent = v;
             if (saved.glass) |v| priv.sidebar_glass = v;
+            if (saved.show_paths) |v| priv.sidebar_show_paths = v;
         }
 
         // Dropping a tab on empty sidebar space moves it to the end and
@@ -510,6 +515,12 @@ pub const Window = extern struct {
                 actionSidebarGlass,
                 null,
                 glib.Variant.newBoolean(@intFromBool(self.private().sidebar_glass)),
+            ),
+            .initStateful(
+                "sidebar-show-paths",
+                actionSidebarShowPaths,
+                null,
+                glib.Variant.newBoolean(@intFromBool(self.private().sidebar_show_paths)),
             ),
             .init("toggle-pin-tab", actionTogglePinTab, null),
             .init("set-tab-group", actionSetTabGroup, s_variant_type),
@@ -1311,6 +1322,7 @@ pub const Window = extern struct {
             "sidebar-theme",
             "sidebar-accent",
             "sidebar-glass",
+            "sidebar-show-paths",
             "set-tab-group",
             "new-tab-group",
         }) |name| {
@@ -1339,6 +1351,7 @@ pub const Window = extern struct {
             .theme = priv.sidebar_theme,
             .accent = priv.sidebar_accent,
             .glass = priv.sidebar_glass,
+            .show_paths = priv.sidebar_show_paths,
         });
     }
 
@@ -1524,7 +1537,7 @@ pub const Window = extern struct {
             // Collapsed groups hide their tabs (only in full mode).
             if (!compact) if (group) |name| if (self.isGroupCollapsed(name)) continue;
 
-            const row = TabSidebarRow.new(page, @intCast(i), compact);
+            const row = TabSidebarRow.new(page, @intCast(i), compact, priv.sidebar_show_paths);
             if (group != null) row.as(gtk.Widget).addCssClass("in-group");
             list.append(row.as(gtk.Widget));
         }
@@ -2044,6 +2057,18 @@ pub const Window = extern struct {
         priv.sidebar_glass = !priv.sidebar_glass;
         action.setState(glib.Variant.newBoolean(@intFromBool(priv.sidebar_glass)));
         self.syncSidebar();
+        self.saveSidebarState();
+    }
+
+    fn actionSidebarShowPaths(
+        action: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        priv.sidebar_show_paths = !priv.sidebar_show_paths;
+        action.setState(glib.Variant.newBoolean(@intFromBool(priv.sidebar_show_paths)));
+        self.queueSidebarRebuild();
         self.saveSidebarState();
     }
 

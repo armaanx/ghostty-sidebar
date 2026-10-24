@@ -26,6 +26,7 @@ pub const State = struct {
     theme: ?Theme = null,
     accent: ?Color = null,
     glass: ?bool = null,
+    show_paths: ?bool = null,
 };
 
 const max_file_size = 4096;
@@ -67,6 +68,9 @@ pub fn load(alloc: Allocator) State {
         } else if (std.mem.eql(u8, key, "glass")) {
             if (std.mem.eql(u8, value, "true")) result.glass = true;
             if (std.mem.eql(u8, value, "false")) result.glass = false;
+        } else if (std.mem.eql(u8, key, "show-paths")) {
+            if (std.mem.eql(u8, value, "true")) result.show_paths = true;
+            if (std.mem.eql(u8, value, "false")) result.show_paths = false;
         }
     }
 
@@ -94,6 +98,7 @@ fn saveImpl(alloc: Allocator, state: State) !void {
     if (state.theme) |v| try w.print("theme = {s}\n", .{@tagName(v)});
     if (state.accent) |c| try w.print("accent = #{x:0>2}{x:0>2}{x:0>2}\n", .{ c.r, c.g, c.b });
     if (state.glass) |v| try w.print("glass = {}\n", .{v});
+    if (state.show_paths) |v| try w.print("show-paths = {}\n", .{v});
 
     const tmp = try std.fmt.allocPrint(alloc, "{s}.tmp", .{p});
     defer alloc.free(tmp);

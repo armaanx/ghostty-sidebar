@@ -3611,6 +3611,11 @@ else
 /// sidebar itself stays opaque. Can also be toggled from the main menu.
 @"gtk-tabs-sidebar-glass": bool = false,
 
+/// Show each tab's working directory under its title in the vertical tab
+/// sidebar. Can also be toggled with the folder button in the sidebar
+/// header or from the main menu.
+@"gtk-tabs-sidebar-show-paths": bool = true,
+
 /// Draw a colored ring around a split when it needs attention: when it
 /// rings the bell, or sends a desktop notification while unfocused. The
 /// ring clears when you focus the split.

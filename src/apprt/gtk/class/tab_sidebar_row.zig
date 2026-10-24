@@ -127,13 +127,14 @@ pub const TabSidebarRow = extern struct {
         badge: *gtk.Label,
         pin_icon: *gtk.Image,
         close_button: *gtk.Button,
+        subtitle: *gtk.Label,
 
         pub var offset: c_int = 0;
     };
 
     /// Create a row for `page`. `position` is the tab index (for the
     /// compact badge number).
-    pub fn new(page: *adw.TabPage, position: c_uint, compact: bool) *Self {
+    pub fn new(page: *adw.TabPage, position: c_uint, compact: bool, show_path: bool) *Self {
         const self = gobject.ext.newInstance(Self, .{
             .page = page,
             .position = position,
@@ -145,6 +146,7 @@ pub const TabSidebarRow = extern struct {
         const priv = self.private();
         priv.pin_icon.as(gtk.Widget).setVisible(@intFromBool(pinned));
         priv.close_button.as(gtk.Widget).setVisible(@intFromBool(!pinned));
+        priv.subtitle.as(gtk.Widget).setVisible(@intFromBool(show_path));
         if (pinned) self.as(gtk.Widget).addCssClass("pinned");
         return self;
     }
@@ -400,6 +402,7 @@ pub const TabSidebarRow = extern struct {
             class.bindTemplateChildPrivate("badge", .{});
             class.bindTemplateChildPrivate("pin_icon", .{});
             class.bindTemplateChildPrivate("close_button", .{});
+            class.bindTemplateChildPrivate("subtitle", .{});
 
             class.bindTemplateCallback("close_clicked", &closeClicked);
             class.bindTemplateCallback("primary_pressed", &primaryPressed);
