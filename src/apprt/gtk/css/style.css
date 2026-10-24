@@ -183,12 +183,18 @@ label.resize-overlay {
 }
 
 
+
 /*
  * Vertical tab sidebar (gtk-tabs-location = left | right)
  *
- * Themes set CSS variables on .ghostty-tab-sidebar; everything below reads
- * them. Requires GTK 4.16+ for CSS custom properties.
+ * Themes set CSS variables on .ghostty-tab-sidebar; the accent color
+ * (--sb-accent) is set on `window` by the app at runtime. Needs GTK 4.16+
+ * for CSS variables and color-mix().
  */
+window {
+  --sb-accent: #4ea1ff;
+}
+
 .ghostty-tab-sidebar {
   --sb-bg: transparent;
   --sb-fg: currentColor;
@@ -198,52 +204,57 @@ label.resize-overlay {
   --sb-border: alpha(currentColor, 0.10);
   --sb-badge: alpha(currentColor, 0.07);
   --sb-ring: alpha(currentColor, 0.35);
-  --sb-attention: #4ea1ff;
+  --sb-glass-tint: rgba(255, 255, 255, 0.07);
 
   background-color: var(--sb-bg);
   color: var(--sb-fg);
 }
 
 .ghostty-tab-sidebar.theme-graphite {
-  --sb-bg: #1d1d20;
-  --sb-fg: #e6e6e9;
-  --sb-muted: #8c8c95;
-  --sb-hover: #26262a;
-  --sb-selected: #303035;
-  --sb-border: #2b2b30;
-  --sb-badge: #29292e;
-  --sb-ring: #6a6a74;
+  --sb-bg: #1d1d20; --sb-fg: #e6e6e9; --sb-muted: #8c8c95;
+  --sb-hover: #26262a; --sb-selected: #303035; --sb-border: #2b2b30;
+  --sb-badge: #29292e; --sb-ring: #6a6a74;
 }
 
 .ghostty-tab-sidebar.theme-charcoal {
-  --sb-bg: #141416;
-  --sb-fg: #e8e8eb;
-  --sb-muted: #84848c;
-  --sb-hover: #1d1d20;
-  --sb-selected: #26262a;
-  --sb-border: #222225;
-  --sb-badge: #202023;
-  --sb-ring: #5e5e66;
+  --sb-bg: #141416; --sb-fg: #e8e8eb; --sb-muted: #84848c;
+  --sb-hover: #1d1d20; --sb-selected: #26262a; --sb-border: #222225;
+  --sb-badge: #202023; --sb-ring: #5e5e66;
 }
 
 .ghostty-tab-sidebar.theme-midnight {
-  --sb-bg: #000000;
-  --sb-fg: #ededed;
-  --sb-muted: #7a7a7a;
-  --sb-hover: #101010;
-  --sb-selected: #1a1a1a;
-  --sb-border: #161616;
-  --sb-badge: #121212;
-  --sb-ring: #4d4d4d;
+  --sb-bg: #000000; --sb-fg: #ededed; --sb-muted: #7a7a7a;
+  --sb-hover: #101010; --sb-selected: #1a1a1a; --sb-border: #161616;
+  --sb-badge: #121212; --sb-ring: #4d4d4d;
 }
 
-.ghostty-tab-sidebar.left {
-  border-right: 1px solid var(--sb-border);
+.ghostty-tab-sidebar.theme-slate {
+  --sb-bg: #1a1e26; --sb-fg: #e3e8f0; --sb-muted: #8590a3;
+  --sb-hover: #222833; --sb-selected: #2b3240; --sb-border: #262c37;
+  --sb-badge: #252b36; --sb-ring: #66728a;
 }
 
-.ghostty-tab-sidebar.right {
-  border-left: 1px solid var(--sb-border);
+.ghostty-tab-sidebar.theme-nord {
+  --sb-bg: #2e3440; --sb-fg: #eceff4; --sb-muted: #9aa3b5;
+  --sb-hover: #353c4a; --sb-selected: #3b4252; --sb-border: #3b4252;
+  --sb-badge: #3b4252; --sb-ring: #81a1c1;
 }
+
+.ghostty-tab-sidebar.theme-mocha {
+  --sb-bg: #1e1e2e; --sb-fg: #cdd6f4; --sb-muted: #9399b2;
+  --sb-hover: #262637; --sb-selected: #313244; --sb-border: #2a2a3c;
+  --sb-badge: #2a2a3c; --sb-ring: #7f849c;
+}
+
+.ghostty-tab-sidebar.theme-paper {
+  --sb-bg: #f4f4f5; --sb-fg: #1f1f23; --sb-muted: #6b6b75;
+  --sb-hover: #e8e8eb; --sb-selected: #dcdce1; --sb-border: #dedee2;
+  --sb-badge: #e4e4e8; --sb-ring: #9a9aa5;
+  --sb-glass-tint: rgba(0, 0, 0, 0.05);
+}
+
+.ghostty-tab-sidebar.left { border-right: 1px solid var(--sb-border); }
+.ghostty-tab-sidebar.right { border-left: 1px solid var(--sb-border); }
 
 /* Header: "TABS" label and collapse button */
 .ghostty-tab-sidebar .sidebar-header {
@@ -251,9 +262,7 @@ label.resize-overlay {
   min-height: 28px;
 }
 
-.ghostty-tab-sidebar.compact .sidebar-header {
-  padding: 10px 0 6px 0;
-}
+.ghostty-tab-sidebar.compact .sidebar-header { padding: 10px 0 6px 0; }
 
 .ghostty-tab-sidebar .sidebar-heading {
   color: var(--sb-muted);
@@ -277,40 +286,27 @@ label.resize-overlay {
 }
 
 /* Tab list */
-.ghostty-tab-list {
-  background: none;
-  padding: 2px 0 8px 0;
-}
+.ghostty-tab-list { padding: 2px 8px 8px 8px; }
+.ghostty-tab-sidebar.compact .ghostty-tab-list { padding: 2px 0 8px 0; }
 
-.ghostty-tab-list > row {
-  background: none;
-  padding: 0;
-  margin: 1px 8px;
-  outline: none;
-  box-shadow: none;
-}
-
-.ghostty-tab-list.compact > row {
-  margin: 3px 0;
-}
-
-.ghostty-tab-list > row > .tab-row {
+.tab-row {
   border-radius: 10px;
-  transition: background-color 120ms ease-out;
+  margin: 1px 0;
+  transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
 }
 
-.ghostty-tab-list > row:hover > .tab-row {
-  background-color: var(--sb-hover);
-}
+.tab-row:hover { background-color: var(--sb-hover); }
+.tab-row.selected { background-color: var(--sb-selected); }
+.tab-row.in-group { margin-left: 12px; }
 
-.ghostty-tab-list > row:selected > .tab-row {
-  background-color: var(--sb-selected);
-}
+.ghostty-tab-sidebar.compact .tab-row { margin: 3px 0; }
+.ghostty-tab-sidebar.compact .tab-row.in-group { margin-left: 0; }
+.ghostty-tab-sidebar.compact .tab-row:hover,
+.ghostty-tab-sidebar.compact .tab-row.selected { background: none; }
 
-.ghostty-tab-list.compact > row:hover > .tab-row,
-.ghostty-tab-list.compact > row:selected > .tab-row {
-  background: none;
-}
+/* Drop position markers while dragging a tab */
+.tab-row.drop-before { box-shadow: inset 0 2px 0 var(--sb-accent); }
+.tab-row.drop-after { box-shadow: inset 0 -2px 0 var(--sb-accent); }
 
 .tab-row-full {
   padding: 7px 6px 7px 0;
@@ -324,14 +320,8 @@ label.resize-overlay {
   background-color: transparent;
 }
 
-.tab-title {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.ghostty-tab-list > row:selected .tab-title {
-  font-weight: 650;
-}
+.tab-title { font-size: 13px; font-weight: 500; }
+.tab-row.selected .tab-title { font-weight: 650; }
 
 .tab-subtitle {
   font-family: monospace;
@@ -339,9 +329,11 @@ label.resize-overlay {
   color: var(--sb-muted);
 }
 
+.tab-pin { color: var(--sb-accent); }
+
 .tab-attention {
-  color: var(--sb-attention);
-  -gtk-icon-shadow: 0 0 6px alpha(#4ea1ff, 0.8);
+  color: var(--sb-accent);
+  -gtk-icon-shadow: 0 0 6px var(--sb-accent);
 }
 
 .tab-close {
@@ -353,9 +345,7 @@ label.resize-overlay {
   transition: opacity 120ms ease-out;
 }
 
-.ghostty-tab-list > row:hover .tab-close {
-  opacity: 1;
-}
+.tab-row:hover .tab-close { opacity: 1; }
 
 .tab-close:hover {
   color: var(--sb-fg);
@@ -363,9 +353,7 @@ label.resize-overlay {
 }
 
 /* Compact badges */
-.tab-row-compact {
-  padding: 0;
-}
+.tab-row-compact { padding: 0; }
 
 .tab-badge {
   min-width: 38px;
@@ -378,19 +366,53 @@ label.resize-overlay {
   transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
 }
 
-.ghostty-tab-list.compact > row:hover .tab-badge {
+.ghostty-tab-sidebar.compact .tab-row:hover .tab-badge {
   background-color: var(--sb-hover);
   color: var(--sb-fg);
 }
 
-.ghostty-tab-list.compact > row:selected .tab-badge {
+.ghostty-tab-sidebar.compact .tab-row.selected .tab-badge {
   background-color: var(--sb-selected);
   color: var(--sb-fg);
   box-shadow: inset 0 0 0 1.5px var(--sb-ring);
 }
 
-.tab-attention-badge {
-  margin: 2px;
+.ghostty-tab-sidebar.compact .tab-row.pinned .tab-badge {
+  border-radius: 19px;
+}
+
+.tab-attention-badge { margin: 2px; }
+
+/* Tab groups */
+.tab-group-header {
+  margin: 8px 0 2px 0;
+  padding: 4px 8px 4px 4px;
+  border-radius: 8px;
+  color: var(--sb-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: background-color 120ms ease-out;
+}
+
+.tab-group-header:hover { background-color: var(--sb-hover); }
+.tab-group-header.has-selected .tab-group-name { color: var(--sb-fg); }
+.tab-group-header.collapsed.has-selected { box-shadow: inset 2px 0 0 var(--sb-accent); }
+.tab-group-chevron { -gtk-icon-size: 12px; }
+
+.tab-group-count {
+  padding: 0 6px;
+  border-radius: 6px;
+  background-color: var(--sb-badge);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.sidebar-separator {
+  margin: 6px 12px;
+  min-height: 1px;
+  background-color: var(--sb-border);
 }
 
 /* Footer New Tab button */
@@ -414,7 +436,7 @@ label.resize-overlay {
   padding: 0;
 }
 
-/* Resize handle */
+/* Resize handle and drag guide */
 .sidebar-handle {
   min-width: 4px;
   background-color: transparent;
@@ -422,57 +444,90 @@ label.resize-overlay {
 }
 
 .sidebar-handle:hover {
-  background-color: alpha(#4ea1ff, 0.45);
+  background-color: color-mix(in srgb, var(--sb-accent) 45%, transparent);
+}
+
+.sidebar-guide {
+  min-width: 2px;
+  background-color: var(--sb-accent);
+  box-shadow: 0 0 6px var(--sb-accent);
 }
 
 /* Tab colors: bar on full rows, tinted selection, strip on badges */
-.tab-row.color-red .tab-color-bar { background-color: #e5484d; }
-.tab-row.color-orange .tab-color-bar { background-color: #f76b15; }
-.tab-row.color-yellow .tab-color-bar { background-color: #f5c400; }
-.tab-row.color-green .tab-color-bar { background-color: #46a758; }
-.tab-row.color-teal .tab-color-bar { background-color: #12a594; }
-.tab-row.color-blue .tab-color-bar { background-color: #3e7bfa; }
-.tab-row.color-purple .tab-color-bar { background-color: #8e4ec6; }
-.tab-row.color-pink .tab-color-bar { background-color: #d6409f; }
-.tab-row.color-gray .tab-color-bar { background-color: #8b8d98; }
+.tab-row.color-red { --tab-color: #e5484d; }
+.tab-row.color-orange { --tab-color: #f76b15; }
+.tab-row.color-yellow { --tab-color: #f5c400; }
+.tab-row.color-green { --tab-color: #46a758; }
+.tab-row.color-teal { --tab-color: #12a594; }
+.tab-row.color-blue { --tab-color: #3e7bfa; }
+.tab-row.color-purple { --tab-color: #8e4ec6; }
+.tab-row.color-pink { --tab-color: #d6409f; }
+.tab-row.color-gray { --tab-color: #8b8d98; }
 
-.ghostty-tab-list > row:selected > .tab-row.color-red { background-color: alpha(#e5484d, 0.18); }
-.ghostty-tab-list > row:selected > .tab-row.color-orange { background-color: alpha(#f76b15, 0.18); }
-.ghostty-tab-list > row:selected > .tab-row.color-yellow { background-color: alpha(#f5c400, 0.16); }
-.ghostty-tab-list > row:selected > .tab-row.color-green { background-color: alpha(#46a758, 0.18); }
-.ghostty-tab-list > row:selected > .tab-row.color-teal { background-color: alpha(#12a594, 0.18); }
-.ghostty-tab-list > row:selected > .tab-row.color-blue { background-color: alpha(#3e7bfa, 0.18); }
-.ghostty-tab-list > row:selected > .tab-row.color-purple { background-color: alpha(#8e4ec6, 0.20); }
-.ghostty-tab-list > row:selected > .tab-row.color-pink { background-color: alpha(#d6409f, 0.18); }
-.ghostty-tab-list > row:selected > .tab-row.color-gray { background-color: alpha(#8b8d98, 0.18); }
+.tab-row.has-color .tab-color-bar { background-color: var(--tab-color); }
 
-.ghostty-tab-list.compact > row:selected > .tab-row { background: none; }
+.tab-row.selected.has-color {
+  background-color: color-mix(in srgb, var(--tab-color) 18%, var(--sb-bg));
+}
 
-.tab-row.color-red .tab-badge { box-shadow: inset 0 -3px 0 #e5484d; }
-.tab-row.color-orange .tab-badge { box-shadow: inset 0 -3px 0 #f76b15; }
-.tab-row.color-yellow .tab-badge { box-shadow: inset 0 -3px 0 #f5c400; }
-.tab-row.color-green .tab-badge { box-shadow: inset 0 -3px 0 #46a758; }
-.tab-row.color-teal .tab-badge { box-shadow: inset 0 -3px 0 #12a594; }
-.tab-row.color-blue .tab-badge { box-shadow: inset 0 -3px 0 #3e7bfa; }
-.tab-row.color-purple .tab-badge { box-shadow: inset 0 -3px 0 #8e4ec6; }
-.tab-row.color-pink .tab-badge { box-shadow: inset 0 -3px 0 #d6409f; }
-.tab-row.color-gray .tab-badge { box-shadow: inset 0 -3px 0 #8b8d98; }
+.tab-row.has-color .tab-badge {
+  box-shadow: inset 0 -3px 0 var(--tab-color);
+}
 
-/* Selected + colored compact badge keeps both the color strip and ring. */
-.ghostty-tab-list.compact > row:selected > .tab-row.color-red .tab-badge { box-shadow: inset 0 -3px 0 #e5484d, inset 0 0 0 1.5px var(--sb-ring); }
-.ghostty-tab-list.compact > row:selected > .tab-row.color-orange .tab-badge { box-shadow: inset 0 -3px 0 #f76b15, inset 0 0 0 1.5px var(--sb-ring); }
-.ghostty-tab-list.compact > row:selected > .tab-row.color-yellow .tab-badge { box-shadow: inset 0 -3px 0 #f5c400, inset 0 0 0 1.5px var(--sb-ring); }
-.ghostty-tab-list.compact > row:selected > .tab-row.color-green .tab-badge { box-shadow: inset 0 -3px 0 #46a758, inset 0 0 0 1.5px var(--sb-ring); }
-.ghostty-tab-list.compact > row:selected > .tab-row.color-teal .tab-badge { box-shadow: inset 0 -3px 0 #12a594, inset 0 0 0 1.5px var(--sb-ring); }
-.ghostty-tab-list.compact > row:selected > .tab-row.color-blue .tab-badge { box-shadow: inset 0 -3px 0 #3e7bfa, inset 0 0 0 1.5px var(--sb-ring); }
-.ghostty-tab-list.compact > row:selected > .tab-row.color-purple .tab-badge { box-shadow: inset 0 -3px 0 #8e4ec6, inset 0 0 0 1.5px var(--sb-ring); }
-.ghostty-tab-list.compact > row:selected > .tab-row.color-pink .tab-badge { box-shadow: inset 0 -3px 0 #d6409f, inset 0 0 0 1.5px var(--sb-ring); }
-.ghostty-tab-list.compact > row:selected > .tab-row.color-gray .tab-badge { box-shadow: inset 0 -3px 0 #8b8d98, inset 0 0 0 1.5px var(--sb-ring); }
+.ghostty-tab-sidebar.compact .tab-row.selected.has-color {
+  background: none;
+}
 
+.ghostty-tab-sidebar.compact .tab-row.selected.has-color .tab-badge {
+  box-shadow: inset 0 -3px 0 var(--tab-color), inset 0 0 0 1.5px var(--sb-ring);
+}
 
-/* Guide line shown while dragging the sidebar edge. */
-.sidebar-guide {
-  min-width: 2px;
-  background-color: alpha(#4ea1ff, 0.85);
-  box-shadow: 0 0 6px alpha(#4ea1ff, 0.6);
+/*
+ * Glass: translucent sidebar over whatever is behind the window. GNOME
+ * doesn't blur behind apps by itself; with a blurring compositor or
+ * extension this becomes frosted glass.
+ */
+.ghostty-tab-sidebar.glass {
+  background-color: color-mix(in srgb, var(--sb-bg) 58%, transparent);
+  background-image: linear-gradient(180deg, var(--sb-glass-tint), transparent 45%);
+}
+
+.ghostty-tab-sidebar.glass.left { box-shadow: inset -1px 0 0 var(--sb-glass-tint); }
+.ghostty-tab-sidebar.glass.right { box-shadow: inset 1px 0 0 var(--sb-glass-tint); }
+
+.ghostty-tab-sidebar.glass .tab-row:hover {
+  background-color: var(--sb-glass-tint);
+}
+
+.ghostty-tab-sidebar.glass .tab-row.selected {
+  background-color: color-mix(in srgb, var(--sb-selected) 70%, transparent);
+  box-shadow: inset 0 1px 0 var(--sb-glass-tint), 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.ghostty-tab-sidebar.glass .tab-badge,
+.ghostty-tab-sidebar.glass .sidebar-new-tab,
+.ghostty-tab-sidebar.glass .tab-group-count {
+  background-color: var(--sb-glass-tint);
+  box-shadow: inset 0 0 0 1px var(--sb-glass-tint);
+}
+
+.ghostty-tab-sidebar.glass.compact .tab-row.selected { background: none; box-shadow: none; }
+
+/* Attention ring around a split that rang the bell or sent a
+ * notification while unfocused. Replaces the default bell border look. */
+.surface .bell-overlay {
+  border-color: var(--sb-accent);
+  border-width: 2px;
+  border-style: solid;
+  border-radius: 6px;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--sb-accent) 35%, transparent),
+    inset 0 0 18px color-mix(in srgb, var(--sb-accent) 28%, transparent);
+  animation: sb-attention-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes sb-attention-pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.45; }
+  100% { opacity: 1; }
 }

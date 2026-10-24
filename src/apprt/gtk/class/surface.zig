@@ -816,7 +816,8 @@ pub const Surface = extern struct {
             return @intFromBool(false);
         };
 
-        return @intFromBool(config.@"bell-features".border);
+        return @intFromBool(config.@"bell-features".border or
+            config.@"gtk-tabs-attention-ring");
     }
 
     /// Callback used to determine whether unfocused-split-fill / unfocused-split-opacity
@@ -2179,6 +2180,17 @@ pub const Surface = extern struct {
         const priv = self.private();
         if (priv.bell_ringing == ringing) return;
         priv.bell_ringing = ringing;
+        self.as(gobject.Object).notifyByPspec(properties.@"bell-ringing".impl.param_spec);
+    }
+
+    /// Mark this surface as needing attention without the bell's sound
+    /// or system effects: shows the attention ring and marks the tab.
+    /// Cleared like the bell, on focus or key press.
+    pub fn markAttention(self: *Self) void {
+        const priv = self.private();
+        _ = self.as(gtk.Widget).activateAction("tab.ring-bell", null);
+        if (priv.bell_ringing) return;
+        priv.bell_ringing = true;
         self.as(gobject.Object).notifyByPspec(properties.@"bell-ringing".impl.param_spec);
     }
 

@@ -157,8 +157,11 @@ template $GhosttyWindow: Adw.ApplicationWindow {
 
         Gtk.Revealer sidebar_revealer {
           hexpand: false;
-          transition-type: slide_right;
-          transition-duration: 160;
+          // No slide animation: animating the width would resize the
+          // terminal on every frame, and each resize makes the shell redraw
+          // its prompt (stacked prompt copies). One step = one resize.
+          transition-type: none;
+          transition-duration: 0;
           reveal-child: bind template.sidebar-visible;
 
           child: Gtk.Box sidebar {
@@ -204,57 +207,18 @@ template $GhosttyWindow: Adw.ApplicationWindow {
             }
 
             Gtk.ScrolledWindow {
-              visible: bind template.sidebar-compact inverted;
               vexpand: true;
               hscrollbar-policy: never;
 
-              Gtk.ListView {
+              // Filled by the window code: pinned tabs, ungrouped tabs and
+              // collapsible tab groups. See Window.rebuildSidebar.
+              Gtk.Box sidebar_list {
                 styles [
                   "ghostty-tab-list",
                 ]
 
-                // AdwTabView.pages is a GtkSelectionModel, so selecting a
-                // row selects that tab and vice versa.
-                model: bind tab_view.pages;
-                // Keep keyboard focus in the terminal after clicking a row.
-                can-focus: false;
-                focus-on-click: false;
-
-                factory: Gtk.BuilderListItemFactory {
-                  template Gtk.ListItem {
-                    child: $GhosttyTabSidebarRow {
-                      page: bind template.item as <Adw.TabPage>;
-                      position: bind template.position;
-                    };
-                  }
-                };
-              }
-            }
-
-            Gtk.ScrolledWindow {
-              visible: bind template.sidebar-compact;
-              vexpand: true;
-              hscrollbar-policy: never;
-
-              Gtk.ListView {
-                styles [
-                  "ghostty-tab-list",
-                  "compact",
-                ]
-
-                model: bind tab_view.pages;
-                can-focus: false;
-                focus-on-click: false;
-
-                factory: Gtk.BuilderListItemFactory {
-                  template Gtk.ListItem {
-                    child: $GhosttyTabSidebarRow {
-                      compact: true;
-                      page: bind template.item as <Adw.TabPage>;
-                      position: bind template.position;
-                    };
-                  }
-                };
+                orientation: vertical;
+                valign: start;
               }
             }
 
@@ -320,6 +284,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
               page-detached => $page_detached();
               create-window => $tab_create_window();
               setup-menu => $setup_tab_menu();
+              page-reordered => $page_reordered();
               menu-model: tab_context_menu;
               shortcuts: none;
             }
@@ -550,6 +515,93 @@ menu main_menu {
         action: "win.sidebar-theme";
         target: "midnight";
       }
+
+      item {
+        label: _("Slate");
+        action: "win.sidebar-theme";
+        target: "slate";
+      }
+
+      item {
+        label: _("Nord");
+        action: "win.sidebar-theme";
+        target: "nord";
+      }
+
+      item {
+        label: _("Mocha");
+        action: "win.sidebar-theme";
+        target: "mocha";
+      }
+
+      item {
+        label: _("Paper (Light)");
+        action: "win.sidebar-theme";
+        target: "paper";
+      }
+    }
+
+    submenu {
+      label: _("Sidebar Accent");
+
+      item {
+        label: _("Blue");
+        action: "win.sidebar-accent";
+        target: "4ea1ff";
+      }
+
+      item {
+        label: _("Purple");
+        action: "win.sidebar-accent";
+        target: "a78bfa";
+      }
+
+      item {
+        label: _("Green");
+        action: "win.sidebar-accent";
+        target: "4ade80";
+      }
+
+      item {
+        label: _("Teal");
+        action: "win.sidebar-accent";
+        target: "2dd4bf";
+      }
+
+      item {
+        label: _("Orange");
+        action: "win.sidebar-accent";
+        target: "fb923c";
+      }
+
+      item {
+        label: _("Pink");
+        action: "win.sidebar-accent";
+        target: "f472b6";
+      }
+
+      item {
+        label: _("Red");
+        action: "win.sidebar-accent";
+        target: "f87171";
+      }
+
+      item {
+        label: _("Yellow");
+        action: "win.sidebar-accent";
+        target: "facc15";
+      }
+
+      item {
+        label: _("White");
+        action: "win.sidebar-accent";
+        target: "e5e7eb";
+      }
+    }
+
+    item {
+      label: _("Glass Sidebar");
+      action: "win.sidebar-glass";
     }
   }
 
@@ -592,6 +644,11 @@ menu tab_context_menu {
   item {
     label: _("Change Tab Title…");
     action: "win.prompt-context-tab-title";
+  }
+
+  item {
+    label: _("Pin or Unpin Tab");
+    action: "win.toggle-pin-tab";
   }
 
   submenu {

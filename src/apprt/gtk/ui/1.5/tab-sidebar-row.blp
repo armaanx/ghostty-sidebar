@@ -10,6 +10,11 @@ template $GhosttyTabSidebarRow: Adw.Bin {
   tooltip-text: bind template.page as <Adw.TabPage>.title;
 
   Gtk.GestureClick {
+    button: 1;
+    pressed => $primary_pressed();
+  }
+
+  Gtk.GestureClick {
     button: 2;
     pressed => $middle_pressed();
   }
@@ -44,15 +49,31 @@ template $GhosttyTabSidebarRow: Adw.Bin {
         valign: center;
         spacing: 2;
 
-        Gtk.Label {
-          styles [
-            "tab-title",
-          ]
+        Gtk.Box {
+          orientation: horizontal;
+          spacing: 6;
 
-          xalign: 0;
-          ellipsize: end;
-          max-width-chars: 1;
-          label: bind template.page as <Adw.TabPage>.title;
+          Gtk.Image pin_icon {
+            styles [
+              "tab-pin",
+            ]
+
+            visible: false;
+            icon-name: "view-pin-symbolic";
+            pixel-size: 12;
+          }
+
+          Gtk.Label {
+            styles [
+              "tab-title",
+            ]
+
+            hexpand: true;
+            xalign: 0;
+            ellipsize: end;
+            max-width-chars: 1;
+            label: bind template.page as <Adw.TabPage>.title;
+          }
         }
 
         Gtk.Label {
@@ -78,7 +99,7 @@ template $GhosttyTabSidebarRow: Adw.Bin {
         visible: bind template.page as <Adw.TabPage>.needs-attention;
       }
 
-      Gtk.Button {
+      Gtk.Button close_button {
         styles [
           "flat",
           "circular",

@@ -27,8 +27,11 @@ const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
 const Tab = @import("tab.zig").Tab;
 const TabSidebarRow = @import("tab_sidebar_row.zig").TabSidebarRow;
+const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const tab_sidebar_row = @import("tab_sidebar_row.zig");
 const SidebarTheme = configpkg.Config.GtkTabsSidebarTheme;
+const sidebar_state = @import("../sidebar_state.zig");
+const SidebarColor = configpkg.Config.Color;
 const DebugWarning = @import("debug_warning.zig").DebugWarning;
 const CommandPalette = @import("command_palette.zig").CommandPalette;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
@@ -316,6 +319,7 @@ pub const Window = extern struct {
         sidebar_handle: *gtk.Box,
         sidebar_content: *gtk.Box,
         sidebar_guide: *gtk.Box,
+        sidebar_list: *gtk.Box,
         tab_context_menu: *gio.MenuModel,
 
         /// Vertical tab sidebar state, cycled by `cycle_tab_sidebar`.
@@ -330,6 +334,24 @@ pub const Window = extern struct {
 
         /// Pointer offset inside the resize handle when a drag began.
         sidebar_drag_grab_x: f64 = 0,
+
+        /// Sidebar accent color (attention dots, guide, attention ring).
+        sidebar_accent: SidebarColor = .{ .r = 0x4e, .g = 0xa1, .b = 0xff },
+
+        /// Translucent "glass" sidebar.
+        sidebar_glass: bool = false,
+
+        /// Pending idle source that rebuilds the sidebar rows.
+        sidebar_rebuild_source: ?c_uint = null,
+
+        /// Names of collapsed tab groups. Owned strings.
+        collapsed_groups: std.ArrayListUnmanaged([:0]u8) = .empty,
+
+        /// Page waiting for a "New Group" name from the dialog (ref held).
+        group_dialog_page: ?*adw.TabPage = null,
+
+        /// Group being renamed by the dialog. Owned string.
+        group_dialog_rename: ?[:0]u8 = null,
 
         pub var offset: c_int = 0;
     };
@@ -376,11 +398,30 @@ pub const Window = extern struct {
         // actually initialize this until we get realized.
         priv.winproto = .none;
 
-        // Vertical tab sidebar starting state comes from the config.
+        // Vertical tab sidebar starting state comes from the config, then
+        // the remembered state file (last choice made in the UI) wins.
         priv.sidebar_theme = config.@"gtk-tabs-sidebar-theme";
         priv.sidebar_width = clampSidebarWidth(
             @intCast(@min(config.@"gtk-tabs-sidebar-width", 10_000)),
         );
+        priv.sidebar_accent = config.@"gtk-tabs-sidebar-accent";
+        priv.sidebar_glass = config.@"gtk-tabs-sidebar-glass";
+        {
+            const saved = sidebar_state.load(Application.default().allocator());
+            if (saved.width) |v| priv.sidebar_width = clampSidebarWidth(v);
+            if (saved.mode) |v| priv.sidebar_mode = v;
+            if (saved.theme) |v| priv.sidebar_theme = v;
+            if (saved.accent) |v| priv.sidebar_accent = v;
+            if (saved.glass) |v| priv.sidebar_glass = v;
+        }
+
+        // Dropping a tab on empty sidebar space moves it to the end and
+        // out of its group.
+        {
+            const target = gtk.DropTarget.new(adw.TabPage.getGObjectType(), .{ .move = true });
+            _ = gtk.DropTarget.signals.drop.connect(target, *Self, sidebarDropOnEmpty, self, .{});
+            priv.sidebar.as(gtk.Widget).addController(target.as(gtk.EventController));
+        }
 
         // Add our dev CSS class if we're in debug mode.
         if (comptime build_config.is_debug) {
@@ -426,6 +467,7 @@ pub const Window = extern struct {
     fn initActionMap(self: *Self) void {
         const s_variant_type = glib.ext.VariantType.newFor([:0]const u8);
         defer s_variant_type.free();
+        const accent_hex = accentHex(self.private().sidebar_accent);
 
         const actions = [_]ext.actions.Action(Self){
             .init("about", actionAbout, null),
@@ -457,6 +499,24 @@ pub const Window = extern struct {
                 s_variant_type,
                 glib.Variant.newString(@tagName(self.private().sidebar_theme)),
             ),
+            .initStateful(
+                "sidebar-accent",
+                actionSidebarAccent,
+                s_variant_type,
+                glib.Variant.newString(&accent_hex),
+            ),
+            .initStateful(
+                "sidebar-glass",
+                actionSidebarGlass,
+                null,
+                glib.Variant.newBoolean(@intFromBool(self.private().sidebar_glass)),
+            ),
+            .init("toggle-pin-tab", actionTogglePinTab, null),
+            .init("set-tab-group", actionSetTabGroup, s_variant_type),
+            .init("new-tab-group", actionNewTabGroup, null),
+            .init("rename-tab-group", actionRenameTabGroup, s_variant_type),
+            .init("ungroup-tab-group", actionUngroupTabGroup, s_variant_type),
+            .init("close-tab-group", actionCloseTabGroup, s_variant_type),
         };
 
         ext.actions.add(Self, self, &actions);
@@ -1155,7 +1215,7 @@ pub const Window = extern struct {
     //---------------------------------------------------------------
     // Vertical tab sidebar
 
-    pub const SidebarMode = enum { expanded, compact, hidden };
+    pub const SidebarMode = sidebar_state.SidebarMode;
 
     const sidebar_min_width: c_int = 160;
     const sidebar_max_width: c_int = 480;
@@ -1186,6 +1246,7 @@ pub const Window = extern struct {
             .hidden => .expanded,
         };
         self.syncSidebar();
+        self.saveSidebarState();
         return true;
     }
 
@@ -1204,12 +1265,10 @@ pub const Window = extern struct {
             layout.reorderChildAfter(content, null);
             layout.reorderChildAfter(handle, content);
             layout.reorderChildAfter(sidebar, handle);
-            priv.sidebar_revealer.setTransitionType(.slide_left);
         } else {
             layout.reorderChildAfter(sidebar, null);
             layout.reorderChildAfter(handle, sidebar);
             layout.reorderChildAfter(content, handle);
-            priv.sidebar_revealer.setTransitionType(.slide_right);
         }
 
         // Width depends on the mode. Hidden keeps the last width so the
@@ -1234,9 +1293,29 @@ pub const Window = extern struct {
             );
         }
 
-        // Sidebar-only menu items do nothing for horizontal tabs.
+        // Glass: translucent sidebar. The window background must be
+        // transparent for anything behind the window to show through.
         const vertical = self.sidebarIsVertical();
-        inline for (.{ "cycle-tab-sidebar", "sidebar-theme" }) |name| {
+        const glass = priv.sidebar_glass and vertical;
+        toggleWidgetCssClass(sidebar_widget, "glass", glass);
+        if (priv.config) |config_obj| {
+            self.toggleCssClass(
+                "background",
+                config_obj.get().@"background-opacity" >= 1 and !glass,
+            );
+        }
+
+        applySidebarAccent(self.as(gtk.Widget), priv.sidebar_accent);
+
+        // Sidebar-only menu items do nothing for horizontal tabs.
+        inline for (.{
+            "cycle-tab-sidebar",
+            "sidebar-theme",
+            "sidebar-accent",
+            "sidebar-glass",
+            "set-tab-group",
+            "new-tab-group",
+        }) |name| {
             if (self.as(gio.ActionMap).lookupAction(name)) |action| {
                 if (gobject.ext.cast(gio.SimpleAction, action)) |simple| {
                     simple.setEnabled(@intFromBool(vertical));
@@ -1249,6 +1328,418 @@ pub const Window = extern struct {
                 @field(properties, key).impl.param_spec,
             );
         }
+
+        // Full rows vs compact badges.
+        self.queueSidebarRebuild();
+    }
+
+    fn saveSidebarState(self: *Self) void {
+        const priv = self.private();
+        sidebar_state.save(Application.default().allocator(), .{
+            .width = priv.sidebar_width,
+            .mode = priv.sidebar_mode,
+            .theme = priv.sidebar_theme,
+            .accent = priv.sidebar_accent,
+            .glass = priv.sidebar_glass,
+        });
+    }
+
+    fn accentHex(c: SidebarColor) [6:0]u8 {
+        var buf: [6:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&buf, "{x:0>2}{x:0>2}{x:0>2}", .{ c.r, c.g, c.b }) catch unreachable;
+        return buf;
+    }
+
+    /// App-wide CSS provider that defines `--sb-accent`. The accent is
+    /// shared by every window, like the saved state.
+    var accent_provider: ?*gtk.CssProvider = null;
+
+    fn applySidebarAccent(widget: *gtk.Widget, c: SidebarColor) void {
+        const provider = accent_provider orelse provider: {
+            const p = gtk.CssProvider.new();
+            gtk.StyleContext.addProviderForDisplay(
+                widget.getDisplay(),
+                p.as(gtk.StyleProvider),
+                gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 50,
+            );
+            accent_provider = p;
+            break :provider p;
+        };
+
+        var buf: [128]u8 = undefined;
+        const css = std.fmt.bufPrintZ(
+            &buf,
+            "window {{ --sb-accent: rgb({d},{d},{d}); }}",
+            .{ c.r, c.g, c.b },
+        ) catch return;
+        provider.loadFromString(css.ptr);
+    }
+
+    //---------------------------------------------------------------
+    // Sidebar rows: pinned tabs, ungrouped tabs and tab groups. The
+    // sidebar is rebuilt from the tab view on an idle callback whenever
+    // tabs are added, removed, moved, pinned or regrouped.
+
+    fn queueSidebarRebuild(self: *Self) void {
+        const priv = self.private();
+        if (priv.sidebar_rebuild_source != null) return;
+        priv.sidebar_rebuild_source = glib.idleAdd(sidebarRebuildIdle, self);
+    }
+
+    fn sidebarRebuildIdle(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+        self.private().sidebar_rebuild_source = null;
+        self.rebuildSidebar();
+        return 0;
+    }
+
+    fn pageTab(page: *adw.TabPage) ?*Tab {
+        return gobject.ext.cast(Tab, page.getChild());
+    }
+
+    fn pageGroup(page: *adw.TabPage) ?[:0]const u8 {
+        if (page.getPinned() != 0) return null;
+        const tab = pageTab(page) orelse return null;
+        return tab.getGroup();
+    }
+
+    fn eqlGroup(a: ?[:0]const u8, b: ?[:0]const u8) bool {
+        if (a == null and b == null) return true;
+        if (a == null or b == null) return false;
+        return std.mem.eql(u8, a.?, b.?);
+    }
+
+    fn isGroupCollapsed(self: *Self, name: []const u8) bool {
+        for (self.private().collapsed_groups.items) |g| {
+            if (std.mem.eql(u8, g, name)) return true;
+        }
+        return false;
+    }
+
+    fn setGroupCollapsed(self: *Self, name: []const u8, collapsed: bool) void {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+        for (priv.collapsed_groups.items, 0..) |g, i| {
+            if (std.mem.eql(u8, g, name)) {
+                if (!collapsed) {
+                    alloc.free(g);
+                    _ = priv.collapsed_groups.swapRemove(i);
+                }
+                return;
+            }
+        }
+        if (collapsed) {
+            const owned = alloc.dupeZ(u8, name) catch return;
+            priv.collapsed_groups.append(alloc, owned) catch alloc.free(owned);
+        }
+    }
+
+    /// Keep each group's tabs next to each other in the tab view, in the
+    /// order the groups first appear. Pinned tabs always come first.
+    fn normalizeGroupOrder(self: *Self) void {
+        const tab_view = self.private().tab_view;
+        const n: usize = @intCast(tab_view.getNPages());
+        if (n < 2) return;
+
+        const alloc = Application.default().allocator();
+        const pages = alloc.alloc(*adw.TabPage, n) catch return;
+        defer alloc.free(pages);
+        const desired = alloc.alloc(*adw.TabPage, n) catch return;
+        defer alloc.free(desired);
+        const used = alloc.alloc(bool, n) catch return;
+        defer alloc.free(used);
+        @memset(used, false);
+
+        for (pages, 0..) |*p, i| p.* = tab_view.getNthPage(@intCast(i));
+
+        var out: usize = 0;
+        for (pages, 0..) |p, i| {
+            if (used[i]) continue;
+            const group = pageGroup(p);
+            if (group == null) {
+                desired[out] = p;
+                out += 1;
+                used[i] = true;
+                continue;
+            }
+            for (pages[i..], i..) |q, j| {
+                if (used[j]) continue;
+                if (!eqlGroup(pageGroup(q), group)) continue;
+                desired[out] = q;
+                out += 1;
+                used[j] = true;
+            }
+        }
+
+        for (desired, 0..) |p, i| {
+            if (tab_view.getPagePosition(p) != @as(c_int, @intCast(i))) {
+                _ = tab_view.reorderPage(p, @intCast(i));
+            }
+        }
+    }
+
+    fn rebuildSidebar(self: *Self) void {
+        const priv = self.private();
+        if (!self.sidebarIsVertical()) return;
+
+        self.normalizeGroupOrder();
+
+        // Remove the old rows.
+        const list = priv.sidebar_list;
+        while (list.as(gtk.Widget).getFirstChild()) |child| list.remove(child);
+
+        const compact = priv.sidebar_mode == .compact;
+        const tab_view = priv.tab_view;
+        const selected = tab_view.getSelectedPage();
+        const n: c_int = tab_view.getNPages();
+
+        var i: c_int = 0;
+        var prev_pinned = false;
+        var prev_group: ?[:0]const u8 = null;
+        while (i < n) : (i += 1) {
+            const page = tab_view.getNthPage(i);
+            const pinned = page.getPinned() != 0;
+            const group = pageGroup(page);
+
+            // Separator after the pinned tabs.
+            if (i > 0 and prev_pinned and !pinned) {
+                list.append(makeSidebarSeparator());
+            }
+
+            // Group header (or a separator in compact mode) when a new
+            // group starts.
+            if (group) |name| {
+                if (!eqlGroup(prev_group, group)) {
+                    if (compact) {
+                        if (i > 0) list.append(makeSidebarSeparator());
+                    } else {
+                        list.append(self.makeGroupHeader(name, selected));
+                    }
+                }
+            } else if (prev_group != null and !pinned) {
+                if (compact) list.append(makeSidebarSeparator());
+            }
+
+            prev_pinned = pinned;
+            prev_group = group;
+
+            // Collapsed groups hide their tabs (only in full mode).
+            if (!compact) if (group) |name| if (self.isGroupCollapsed(name)) continue;
+
+            const row = TabSidebarRow.new(page, @intCast(i), compact);
+            if (group != null) row.as(gtk.Widget).addCssClass("in-group");
+            list.append(row.as(gtk.Widget));
+        }
+
+        self.updateSidebarSelection();
+    }
+
+    fn makeSidebarSeparator() *gtk.Widget {
+        const sep = gtk.Separator.new(.horizontal);
+        sep.as(gtk.Widget).addCssClass("sidebar-separator");
+        return sep.as(gtk.Widget);
+    }
+
+    const group_data_key = "ghostty-tab-group";
+
+    fn makeGroupHeader(self: *Self, name: [:0]const u8, selected: ?*adw.TabPage) *gtk.Widget {
+        const tab_view = self.private().tab_view;
+        const collapsed = self.isGroupCollapsed(name);
+
+        // Count members and check whether the selected tab is inside.
+        var count: usize = 0;
+        var has_selected = false;
+        var i: c_int = 0;
+        while (i < tab_view.getNPages()) : (i += 1) {
+            const page = tab_view.getNthPage(i);
+            if (!eqlGroup(pageGroup(page), name)) continue;
+            count += 1;
+            if (selected == page) has_selected = true;
+        }
+
+        const box = gtk.Box.new(.horizontal, 6);
+        const widget = box.as(gtk.Widget);
+        widget.addCssClass("tab-group-header");
+        if (collapsed) widget.addCssClass("collapsed");
+        if (has_selected) widget.addCssClass("has-selected");
+        widget.setTooltipText(if (collapsed) "Expand group" else "Collapse group");
+
+        const chevron = gtk.Image.newFromIconName(
+            if (collapsed) "pan-end-symbolic" else "pan-down-symbolic",
+        );
+        chevron.as(gtk.Widget).addCssClass("tab-group-chevron");
+        box.append(chevron.as(gtk.Widget));
+
+        const label = gtk.Label.new(name.ptr);
+        label.setXalign(0);
+        label.setEllipsize(.end);
+        label.setMaxWidthChars(1);
+        label.as(gtk.Widget).setHexpand(1);
+        label.as(gtk.Widget).addCssClass("tab-group-name");
+        box.append(label.as(gtk.Widget));
+
+        var buf: [16]u8 = undefined;
+        const count_text = std.fmt.bufPrintZ(&buf, "{d}", .{count}) catch "?";
+        const count_label = gtk.Label.new(count_text.ptr);
+        count_label.as(gtk.Widget).addCssClass("tab-group-count");
+        box.append(count_label.as(gtk.Widget));
+
+        // Remember the group name on the widget for the handlers.
+        widget.as(gobject.Object).setDataFull(
+            group_data_key,
+            @ptrCast(glib.ext.dupeZ(u8, name).ptr),
+            glib.free,
+        );
+
+        const click = gtk.GestureClick.new();
+        click.as(gtk.GestureSingle).setButton(0);
+        _ = gtk.GestureClick.signals.pressed.connect(click, *Self, groupHeaderPressed, self, .{});
+        widget.addController(click.as(gtk.EventController));
+
+        const target = gtk.DropTarget.new(adw.TabPage.getGObjectType(), .{ .move = true });
+        _ = gtk.DropTarget.signals.drop.connect(target, *Self, groupHeaderDrop, self, .{});
+        widget.addController(target.as(gtk.EventController));
+
+        return widget;
+    }
+
+    fn controllerGroupName(controller: *gtk.EventController) ?[:0]const u8 {
+        const widget = controller.getWidget() orelse return null;
+        const data = widget.as(gobject.Object).getData(group_data_key) orelse return null;
+        const ptr: [*:0]const u8 = @ptrCast(data);
+        return std.mem.span(ptr);
+    }
+
+    fn groupHeaderPressed(
+        gesture: *gtk.GestureClick,
+        _: c_int,
+        x: f64,
+        y: f64,
+        self: *Self,
+    ) callconv(.c) void {
+        const controller = gesture.as(gtk.EventController);
+        const name = controllerGroupName(controller) orelse return;
+        _ = gesture.as(gtk.Gesture).setState(.claimed);
+
+        switch (gesture.as(gtk.GestureSingle).getCurrentButton()) {
+            1 => {
+                self.setGroupCollapsed(name, !self.isGroupCollapsed(name));
+                self.queueSidebarRebuild();
+            },
+            3 => {
+                const widget = controller.getWidget() orelse return;
+                self.showGroupMenu(widget, name, x, y);
+            },
+            else => {},
+        }
+    }
+
+    fn groupHeaderDrop(
+        target: *gtk.DropTarget,
+        value: *gobject.Value,
+        _: f64,
+        _: f64,
+        self: *Self,
+    ) callconv(.c) c_int {
+        const name = controllerGroupName(target.as(gtk.EventController)) orelse return 0;
+        const page = gobject.ext.Value.get(value, ?*adw.TabPage) orelse return 0;
+        self.moveTabToGroup(page, name);
+        return 1;
+    }
+
+    fn updateSidebarSelection(self: *Self) void {
+        const priv = self.private();
+        const selected = priv.tab_view.getSelectedPage();
+        const selected_group = if (selected) |p| pageGroup(p) else null;
+        var child = priv.sidebar_list.as(gtk.Widget).getFirstChild();
+        while (child) |w| : (child = w.getNextSibling()) {
+            if (gobject.ext.cast(TabSidebarRow, w)) |row| {
+                toggleWidgetCssClass(w, "selected", row.getPage() == selected);
+                continue;
+            }
+            // Group headers: highlight when the selected tab is inside.
+            if (w.as(gobject.Object).getData(group_data_key)) |data| {
+                const name = std.mem.span(@as([*:0]const u8, @ptrCast(data)));
+                toggleWidgetCssClass(w, "has-selected", eqlGroup(selected_group, name));
+            }
+        }
+    }
+
+    /// Select a tab from its sidebar row and give the terminal focus.
+    pub fn selectSidebarPage(self: *Self, page: *adw.TabPage) void {
+        self.private().tab_view.setSelectedPage(page);
+        if (self.getActiveSurface()) |surface| surface.grabFocus();
+    }
+
+    /// Put `page` in `group` (null = no group), unpinning it first.
+    fn moveTabToGroup(self: *Self, page: *adw.TabPage, group: ?[:0]const u8) void {
+        const priv = self.private();
+        const tab = pageTab(page) orelse return;
+        if (page.getPinned() != 0) priv.tab_view.setPagePinned(page, 0);
+        tab.setGroup(group);
+        if (group) |g| self.setGroupCollapsed(g, false);
+
+        // Move it after the last tab already in that group, so groups
+        // stay together.
+        if (group) |g| {
+            var last: c_int = -1;
+            var i: c_int = 0;
+            while (i < priv.tab_view.getNPages()) : (i += 1) {
+                const p = priv.tab_view.getNthPage(i);
+                if (p == page) continue;
+                if (eqlGroup(pageGroup(p), g)) last = i;
+            }
+            if (last >= 0) {
+                const from = priv.tab_view.getPagePosition(page);
+                const to = if (from < last) last else last + 1;
+                _ = priv.tab_view.reorderPage(page, to);
+            }
+        }
+        self.queueSidebarRebuild();
+    }
+
+    /// A sidebar row was dropped onto another row. The dragged tab moves
+    /// next to the target and takes on its group and pinned state.
+    pub fn sidebarDropOnPage(
+        self: *Self,
+        dragged: *adw.TabPage,
+        target: *adw.TabPage,
+        after: bool,
+    ) void {
+        if (dragged == target) return;
+        const priv = self.private();
+        const tab_view = priv.tab_view;
+        const tab = pageTab(dragged) orelse return;
+
+        const target_pinned = target.getPinned() != 0;
+        if ((dragged.getPinned() != 0) != target_pinned) {
+            tab_view.setPagePinned(dragged, @intFromBool(target_pinned));
+        }
+        tab.setGroup(if (target_pinned) null else pageGroup(target));
+
+        const from = tab_view.getPagePosition(dragged);
+        var to = tab_view.getPagePosition(target);
+        if (after) to += 1;
+        if (from < to) to -= 1;
+        _ = tab_view.reorderPage(dragged, to);
+        self.queueSidebarRebuild();
+    }
+
+    fn sidebarDropOnEmpty(
+        _: *gtk.DropTarget,
+        value: *gobject.Value,
+        _: f64,
+        _: f64,
+        self: *Self,
+    ) callconv(.c) c_int {
+        const page = gobject.ext.Value.get(value, ?*adw.TabPage) orelse return 0;
+        const priv = self.private();
+        const tab = pageTab(page) orelse return 0;
+        if (page.getPinned() != 0) priv.tab_view.setPagePinned(page, 0);
+        tab.setGroup(null);
+        _ = priv.tab_view.reorderPage(page, priv.tab_view.getNPages() - 1);
+        self.queueSidebarRebuild();
+        return 1;
     }
 
     fn toggleWidgetCssClass(widget: *gtk.Widget, class: [:0]const u8, value: bool) void {
@@ -1264,20 +1755,10 @@ pub const Window = extern struct {
         self.private().tab_view.closePage(page);
     }
 
-    /// Show the tab context menu (rename, color) for a sidebar row.
-    pub fn showSidebarTabMenu(
-        self: *Self,
-        row: *gtk.Widget,
-        page: *adw.TabPage,
-        x: f64,
-        y: f64,
-    ) void {
-        const priv = self.private();
-        priv.context_menu_page = page;
-
-        const popover = gtk.PopoverMenu.newFromModel(priv.tab_context_menu);
-        const popover_widget = popover.as(gtk.Widget);
-        popover_widget.setParent(row);
+    /// Show a popover menu built from `model` at (x, y) in `widget`.
+    fn popupSidebarMenu(widget: *gtk.Widget, model: *gio.MenuModel, x: f64, y: f64) void {
+        const popover = gtk.PopoverMenu.newFromModel(model);
+        popover.as(gtk.Widget).setParent(widget);
         popover.as(gtk.Popover).setHasArrow(0);
         popover.as(gtk.Popover).setPosition(.bottom);
         const rect: gdk.Rectangle = .{
@@ -1295,6 +1776,102 @@ pub const Window = extern struct {
             .{},
         );
         popover.as(gtk.Popover).popup();
+    }
+
+    fn menuItemWithTarget(menu: *gio.Menu, label: [:0]const u8, action: [:0]const u8, target: [:0]const u8) void {
+        const item = gio.MenuItem.new(label.ptr, null);
+        defer item.unref();
+        item.setActionAndTargetValue(action.ptr, glib.Variant.newString(target.ptr));
+        menu.appendItem(item);
+    }
+
+    /// Show the tab context menu for a sidebar row: rename, pin, color
+    /// and group. Built on demand because the group list changes.
+    pub fn showSidebarTabMenu(
+        self: *Self,
+        row: *gtk.Widget,
+        page: *adw.TabPage,
+        x: f64,
+        y: f64,
+    ) void {
+        const priv = self.private();
+        priv.context_menu_page = page;
+        const pinned = page.getPinned() != 0;
+        const current_group = pageGroup(page);
+
+        const menu = gio.Menu.new();
+        defer menu.unref();
+
+        const main = gio.Menu.new();
+        defer main.unref();
+        main.append("Rename Tab…", "win.prompt-context-tab-title");
+        main.append(if (pinned) "Unpin Tab" else "Pin Tab", "win.toggle-pin-tab");
+        menu.appendSection(null, main.as(gio.MenuModel));
+
+        // Tab colors.
+        const colors = gio.Menu.new();
+        defer colors.unref();
+        menuItemWithTarget(colors, "None", "win.set-tab-color", "none");
+        inline for (tab_sidebar_row.tab_colors) |c| {
+            const label = comptime label: {
+                var l: [c.len:0]u8 = undefined;
+                @memcpy(&l, c);
+                l[0] = std.ascii.toUpper(l[0]);
+                const final = l;
+                break :label &final;
+            };
+            menuItemWithTarget(colors, label, "win.set-tab-color", c);
+        }
+
+        // Groups: existing groups, new group, remove from group.
+        const groups = gio.Menu.new();
+        defer groups.unref();
+        const listed = gio.Menu.new();
+        defer listed.unref();
+        {
+            var seen: [32][:0]const u8 = undefined;
+            var n_seen: usize = 0;
+            var i: c_int = 0;
+            while (i < priv.tab_view.getNPages()) : (i += 1) {
+                const g = pageGroup(priv.tab_view.getNthPage(i)) orelse continue;
+                if (eqlGroup(g, current_group)) continue;
+                var dup = false;
+                for (seen[0..n_seen]) |prev| {
+                    if (std.mem.eql(u8, prev, g)) dup = true;
+                }
+                if (dup or n_seen == seen.len) continue;
+                seen[n_seen] = g;
+                n_seen += 1;
+                menuItemWithTarget(listed, g, "win.set-tab-group", g);
+            }
+        }
+        groups.appendSection(null, listed.as(gio.MenuModel));
+        const group_actions = gio.Menu.new();
+        defer group_actions.unref();
+        group_actions.append("New Group…", "win.new-tab-group");
+        if (current_group != null) {
+            menuItemWithTarget(group_actions, "Remove from Group", "win.set-tab-group", "");
+        }
+        groups.appendSection(null, group_actions.as(gio.MenuModel));
+
+        const subs = gio.Menu.new();
+        defer subs.unref();
+        subs.appendSubmenu("Tab Color", colors.as(gio.MenuModel));
+        if (!pinned) subs.appendSubmenu("Move to Group", groups.as(gio.MenuModel));
+        menu.appendSection(null, subs.as(gio.MenuModel));
+
+        popupSidebarMenu(row, menu.as(gio.MenuModel), x, y);
+    }
+
+    /// Show the menu for a group header: rename, ungroup, close.
+    fn showGroupMenu(self: *Self, header: *gtk.Widget, name: [:0]const u8, x: f64, y: f64) void {
+        _ = self;
+        const menu = gio.Menu.new();
+        defer menu.unref();
+        menuItemWithTarget(menu, "Rename Group…", "win.rename-tab-group", name);
+        menuItemWithTarget(menu, "Ungroup Tabs", "win.ungroup-tab-group", name);
+        menuItemWithTarget(menu, "Close Group", "win.close-tab-group", name);
+        popupSidebarMenu(header, menu.as(gio.MenuModel), x, y);
     }
 
     fn sidebarMenuClosed(popover: *gtk.Popover, _: ?*anyopaque) callconv(.c) void {
@@ -1382,6 +1959,7 @@ pub const Window = extern struct {
 
         // Resize the terminal once, now that the drag is done.
         priv.sidebar.as(gtk.Widget).setSizeRequest(priv.sidebar_width, -1);
+        self.saveSidebarState();
     }
 
     /// Resolve the page a tab color action applies to and set it.
@@ -1441,6 +2019,173 @@ pub const Window = extern struct {
         self.private().sidebar_theme = theme;
         action.setState(param);
         self.syncSidebar();
+        self.saveSidebarState();
+    }
+
+    fn actionSidebarAccent(
+        action: *gio.SimpleAction,
+        param_: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const param = param_ orelse return;
+        var str: ?[*:0]const u8 = null;
+        param.get("&s", &str);
+        const color = sidebar_state.parseHex(std.mem.span(str orelse return)) orelse return;
+        self.private().sidebar_accent = color;
+        action.setState(param);
+        self.syncSidebar();
+        self.saveSidebarState();
+    }
+
+    fn actionSidebarGlass(
+        action: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        priv.sidebar_glass = !priv.sidebar_glass;
+        action.setState(glib.Variant.newBoolean(@intFromBool(priv.sidebar_glass)));
+        self.syncSidebar();
+        self.saveSidebarState();
+    }
+
+    /// The page a tab action applies to: the right-clicked tab, or the
+    /// selected tab when used from the main menu.
+    fn actionPage(self: *Self) ?*adw.TabPage {
+        const priv = self.private();
+        return priv.context_menu_page orelse priv.tab_view.getSelectedPage();
+    }
+
+    fn variantString(param_: ?*glib.Variant) ?[:0]const u8 {
+        const param = param_ orelse return null;
+        var str: ?[*:0]const u8 = null;
+        param.get("&s", &str);
+        return std.mem.span(str orelse return null);
+    }
+
+    fn actionTogglePinTab(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const page = self.actionPage() orelse return;
+        const pin = page.getPinned() == 0;
+        // Pinned tabs live in their own section, outside any group.
+        if (pin) if (pageTab(page)) |tab| tab.setGroup(null);
+        self.private().tab_view.setPagePinned(page, @intFromBool(pin));
+        self.queueSidebarRebuild();
+    }
+
+    fn actionSetTabGroup(
+        _: *gio.SimpleAction,
+        param_: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const page = self.actionPage() orelse return;
+        const name = variantString(param_) orelse return;
+        self.moveTabToGroup(page, if (name.len == 0) null else name);
+    }
+
+    fn clearGroupDialog(self: *Self) void {
+        const priv = self.private();
+        if (priv.group_dialog_page) |p| p.unref();
+        priv.group_dialog_page = null;
+        if (priv.group_dialog_rename) |v| Application.default().allocator().free(v);
+        priv.group_dialog_rename = null;
+    }
+
+    fn actionNewTabGroup(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const page = self.actionPage() orelse return;
+        self.clearGroupDialog();
+        self.private().group_dialog_page = @ptrCast(page.as(gobject.Object).ref());
+        self.presentGroupDialog(null);
+    }
+
+    fn actionRenameTabGroup(
+        _: *gio.SimpleAction,
+        param_: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const name = variantString(param_) orelse return;
+        self.clearGroupDialog();
+        self.private().group_dialog_rename =
+            Application.default().allocator().dupeZ(u8, name) catch return;
+        self.presentGroupDialog(name);
+    }
+
+    fn presentGroupDialog(self: *Self, initial: ?[:0]const u8) void {
+        const dialog = TitleDialog.new(.group, initial);
+        _ = TitleDialog.signals.set.connect(dialog, *Self, groupDialogSet, self, .{});
+        dialog.present(self.as(gtk.Widget));
+    }
+
+    fn groupDialogSet(_: *TitleDialog, title_ptr: [*:0]const u8, self: *Self) callconv(.c) void {
+        defer self.clearGroupDialog();
+        const priv = self.private();
+        const name = std.mem.trim(u8, std.mem.span(title_ptr), " \t");
+        if (name.len == 0) return;
+        const alloc = Application.default().allocator();
+        const owned = alloc.dupeZ(u8, name) catch return;
+        defer alloc.free(owned);
+
+        if (priv.group_dialog_page) |page| {
+            self.moveTabToGroup(page, owned);
+            return;
+        }
+
+        if (priv.group_dialog_rename) |old| {
+            const was_collapsed = self.isGroupCollapsed(old);
+            self.setGroupCollapsed(old, false);
+            var i: c_int = 0;
+            while (i < priv.tab_view.getNPages()) : (i += 1) {
+                const page = priv.tab_view.getNthPage(i);
+                if (!eqlGroup(pageGroup(page), old)) continue;
+                if (pageTab(page)) |tab| tab.setGroup(owned);
+            }
+            if (was_collapsed) self.setGroupCollapsed(owned, true);
+            self.queueSidebarRebuild();
+        }
+    }
+
+    fn actionUngroupTabGroup(
+        _: *gio.SimpleAction,
+        param_: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const name = variantString(param_) orelse return;
+        const priv = self.private();
+        self.setGroupCollapsed(name, false);
+        var i: c_int = 0;
+        while (i < priv.tab_view.getNPages()) : (i += 1) {
+            const page = priv.tab_view.getNthPage(i);
+            if (!eqlGroup(pageGroup(page), name)) continue;
+            if (pageTab(page)) |tab| tab.setGroup(null);
+        }
+        self.queueSidebarRebuild();
+    }
+
+    fn actionCloseTabGroup(
+        _: *gio.SimpleAction,
+        param_: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const name = variantString(param_) orelse return;
+        const priv = self.private();
+        // Collect first: closing changes the page list.
+        var pages: [256]*adw.TabPage = undefined;
+        var n: usize = 0;
+        var i: c_int = 0;
+        while (i < priv.tab_view.getNPages() and n < pages.len) : (i += 1) {
+            const page = priv.tab_view.getNthPage(i);
+            if (!eqlGroup(pageGroup(page), name)) continue;
+            pages[n] = page;
+            n += 1;
+        }
+        for (pages[0..n]) |page| priv.tab_view.closePage(page);
     }
 
     fn getTabsWide(self: *Self) bool {
@@ -1639,6 +2384,12 @@ pub const Window = extern struct {
 
         priv.command_palette.set(null);
 
+        if (priv.sidebar_rebuild_source) |source| {
+            _ = glib.Source.remove(source);
+            priv.sidebar_rebuild_source = null;
+        }
+        self.clearGroupDialog();
+
         if (priv.config) |v| {
             v.unref();
             priv.config = null;
@@ -1661,6 +2412,11 @@ pub const Window = extern struct {
         const priv = self.private();
         priv.tab_bindings.unref();
         priv.winproto.deinit(Application.default().allocator());
+        {
+            const alloc = Application.default().allocator();
+            for (priv.collapsed_groups.items) |g| alloc.free(g);
+            priv.collapsed_groups.deinit(alloc);
+        }
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
@@ -1890,6 +2646,17 @@ pub const Window = extern struct {
         // If the tab was previously marked as needing attention
         // (e.g. due to a bell character), we now unmark that
         page.setNeedsAttention(@intFromBool(false));
+
+        self.updateSidebarSelection();
+    }
+
+    fn tabViewPageReordered(
+        _: *adw.TabView,
+        _: *adw.TabPage,
+        _: c_int,
+        self: *Self,
+    ) callconv(.c) void {
+        self.queueSidebarRebuild();
     }
 
     fn tabViewPageAttached(
@@ -1995,6 +2762,7 @@ pub const Window = extern struct {
         self: *Self,
     ) callconv(.c) void {
         const priv = self.private();
+        self.queueSidebarRebuild();
         if (priv.tab_view.getNPages() == 0) {
             // If we have no pages left then we want to close window.
 
@@ -2510,6 +3278,7 @@ pub const Window = extern struct {
             class.bindTemplateChildPrivate("sidebar_handle", .{});
             class.bindTemplateChildPrivate("sidebar_content", .{});
             class.bindTemplateChildPrivate("sidebar_guide", .{});
+            class.bindTemplateChildPrivate("sidebar_list", .{});
             class.bindTemplateChildPrivate("tab_context_menu", .{});
 
             // Template Callbacks
@@ -2517,6 +3286,7 @@ pub const Window = extern struct {
             class.bindTemplateCallback("sidebar_drag_begin", &sidebarDragBegin);
             class.bindTemplateCallback("sidebar_drag_update", &sidebarDragUpdate);
             class.bindTemplateCallback("sidebar_drag_end", &sidebarDragEnd);
+            class.bindTemplateCallback("page_reordered", &tabViewPageReordered);
             class.bindTemplateCallback("realize", &windowRealize);
             class.bindTemplateCallback("new_tab", &btnNewTab);
             class.bindTemplateCallback("overview_create_tab", &tabOverviewCreateTab);

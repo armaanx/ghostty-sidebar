@@ -1932,7 +1932,16 @@ const Action = struct {
         switch (target) {
             .app => {},
             .surface => |v| {
-                v.rt_surface.gobj().sendDesktopNotification(n.title, n.body);
+                const surface = v.rt_surface.gobj();
+                surface.sendDesktopNotification(n.title, n.body);
+
+                // An agent asking for attention from a split you aren't
+                // looking at: ring that split and mark its tab.
+                const window_active = if (ext.getAncestor(Window, surface.as(gtk.Widget))) |w|
+                    w.as(gtk.Window).isActive() != 0
+                else
+                    false;
+                if (!surface.getFocused() or !window_active) surface.markAttention();
                 return;
             },
         }

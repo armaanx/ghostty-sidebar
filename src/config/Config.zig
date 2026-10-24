@@ -3595,7 +3595,28 @@ else
 ///   * `graphite` - Dark gray. The default.
 ///   * `charcoal` - Darker, near-black gray.
 ///   * `midnight` - Pure black, for OLED screens.
+///   * `slate` - Dark blue-gray.
+///   * `nord` - Nord-inspired cool gray-blue.
+///   * `mocha` - Warm dark (Catppuccin Mocha-inspired).
+///   * `paper` - Light.
 @"gtk-tabs-sidebar-theme": GtkTabsSidebarTheme = .graphite,
+
+/// Accent color of the vertical tab sidebar: attention dots, the resize
+/// guide, and the attention ring around panes. Can also be changed from the
+/// main menu.
+@"gtk-tabs-sidebar-accent": Color = .{ .r = 0x4e, .g = 0xa1, .b = 0xff },
+
+/// Frosted "glass" look for the vertical tab sidebar: translucent sidebar
+/// that shows what's behind the window. GNOME does not blur behind apps on
+/// its own; for real blur use a compositor or extension that blurs windows
+/// (for example KDE, or the Blur my Shell GNOME extension). Can also be
+/// toggled from the main menu.
+@"gtk-tabs-sidebar-glass": bool = false,
+
+/// Draw a colored ring around a split when it needs attention: when it
+/// rings the bell, or sends a desktop notification while unfocused. The
+/// ring clears when you focus the split.
+@"gtk-tabs-attention-ring": bool = true,
 
 /// Starting width in pixels of the expanded vertical tab sidebar. The
 /// sidebar can be resized by dragging its edge. Clamped to 160-480.
@@ -9028,6 +9049,10 @@ pub const GtkTabsSidebarTheme = enum {
     graphite,
     charcoal,
     midnight,
+    slate,
+    nord,
+    mocha,
+    paper,
 };
 
 /// See gtk-toolbar-style
