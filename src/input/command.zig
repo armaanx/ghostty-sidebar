@@ -438,6 +438,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle the tab overview.",
         }},
 
+        .toggle_file_explorer => comptime &.{.{
+            .action = .toggle_file_explorer,
+            .title = "Toggle File Explorer",
+            .description = "Show or hide the document explorer for the current folder.",
+        }},
+
         .cycle_tab_sidebar => comptime &.{.{
             .action = .cycle_tab_sidebar,
             .title = "Cycle Tab Sidebar",

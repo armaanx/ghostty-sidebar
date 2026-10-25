@@ -668,3 +668,67 @@ window {
 .media-play:hover {
   background-color: color-mix(in srgb, var(--sb-accent) 85%, white);
 }
+
+
+/*
+ * Document explorer panel (toggle_file_explorer). Shares the sidebar
+ * theme variables via the .ghostty-tab-sidebar class.
+ */
+.file-explorer .explorer-root {
+  padding: 0 16px 6px 16px;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--sb-muted);
+}
+
+.file-explorer .explorer-list,
+.file-explorer .explorer-list > row {
+  background: none;
+}
+
+.file-explorer .explorer-list {
+  padding: 2px 6px 8px 6px;
+}
+
+.file-explorer .explorer-list > row {
+  padding: 4px 8px 4px 2px;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: background-color 120ms ease-out;
+}
+
+.file-explorer .explorer-list > row:hover {
+  background-color: var(--sb-hover);
+}
+
+.file-explorer .file-icon { color: var(--sb-muted); }
+.file-explorer .file-icon.markdown { color: var(--sb-accent); }
+.file-explorer .file-icon.pdf { color: #f87171; }
+.file-explorer .file-icon.html { color: #fb923c; }
+
+.file-explorer .explorer-empty {
+  margin: 24px 16px;
+  color: var(--sb-muted);
+  font-size: 13px;
+}
+
+.file-explorer .preview-header {
+  padding: 2px 6px 6px 6px;
+  border-bottom: 1px solid var(--sb-border);
+}
+
+.file-explorer .preview-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.file-explorer .markdown-preview,
+.file-explorer .markdown-preview > text {
+  background: none;
+  color: var(--sb-fg);
+}
+
+.file-explorer .markdown-preview {
+  font-size: 14px;
+}

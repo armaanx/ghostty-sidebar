@@ -3632,6 +3632,11 @@ else
 /// `org.mpris.MediaPlayer2.<name>`. When unset, the default is `spotify`.
 @"gtk-tabs-sidebar-media-player": ?[:0]const u8 = null,
 
+/// Starting width in pixels of the document explorer panel (toggled with
+/// `toggle_file_explorer`, ctrl+shift+m by default). Drag its edge to
+/// resize. Clamped to 200-900.
+@"gtk-file-explorer-width": u32 = 320,
+
 /// Draw a colored ring around a split when it needs attention: when it
 /// rings the bell, or sends a desktop notification while unfocused. The
 /// ring clears when you focus the split.
@@ -6659,6 +6664,11 @@ pub const Keybinds = struct {
                 alloc,
                 .{ .key = .{ .unicode = 'b' }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .cycle_tab_sidebar = {} },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 'm' }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .toggle_file_explorer = {} },
             );
             try self.set.put(
                 alloc,

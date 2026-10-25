@@ -305,6 +305,37 @@ template $GhosttyWindow: Adw.ApplicationWindow {
             }
           }
         }
+
+        // Document explorer panel and its resize edge. Shown on the side
+        // opposite the tab sidebar (right, unless tabs are on the right).
+        Gtk.Box explorer_handle {
+          styles [
+            "sidebar-handle",
+          ]
+
+          visible: bind template.explorer-visible;
+          cursor: Gdk.Cursor {
+            name: "col-resize";
+          };
+
+          Gtk.GestureDrag {
+            drag-begin => $explorer_drag_begin();
+            drag-update => $explorer_drag_update();
+            drag-end => $explorer_drag_end();
+          }
+        }
+
+        Gtk.ScrolledWindow explorer_clip {
+          visible: bind template.explorer-visible;
+          hscrollbar-policy: external;
+          vscrollbar-policy: never;
+          propagate-natural-width: false;
+          hexpand: false;
+
+          child: $GhosttyFileExplorer file_explorer {
+            root: bind tab_view.selected-page.child as <$GhosttyTab>.active-surface as <$GhosttySurface>.pwd;
+          };
+        }
       };
 
       // Guide line shown while dragging the sidebar edge. The terminal is
@@ -622,6 +653,11 @@ menu main_menu {
     item {
       label: _("Show Paths in Sidebar");
       action: "win.sidebar-show-paths";
+    }
+
+    item {
+      label: _("File Explorer");
+      action: "win.toggle-file-explorer";
     }
 
     item {

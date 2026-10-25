@@ -30,6 +30,7 @@ const TabSidebarRow = @import("tab_sidebar_row.zig").TabSidebarRow;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const SidebarMedia = @import("sidebar_media.zig").SidebarMedia;
 const SidebarPets = @import("sidebar_pets.zig").SidebarPets;
+const FileExplorer = @import("file_explorer.zig").FileExplorer;
 const sidebar_pets_mod = @import("sidebar_pets.zig");
 const pet_sprites = @import("../pet_sprites.zig");
 const tab_sidebar_row = @import("tab_sidebar_row.zig");
@@ -220,6 +221,21 @@ pub const Window = extern struct {
             );
         };
 
+        pub const @"explorer-visible" = struct {
+            pub const name = "explorer-visible";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(Self, bool, .{
+                        .getter = Self.getExplorerVisible,
+                    }),
+                },
+            );
+        };
+
         pub const @"sidebar-compact" = struct {
             pub const name = "sidebar-compact";
             const impl = gobject.ext.defineProperty(
@@ -325,6 +341,14 @@ pub const Window = extern struct {
         sidebar_guide: *gtk.Box,
         sidebar_list: *gtk.Box,
         sidebar_clip: *gtk.ScrolledWindow,
+        explorer_handle: *gtk.Box,
+        explorer_clip: *gtk.ScrolledWindow,
+        file_explorer: *FileExplorer,
+
+        /// Document explorer panel state.
+        explorer_open: bool = false,
+        explorer_width: c_int = 320,
+        explorer_drag_grab_x: f64 = 0,
         sidebar_media: *SidebarMedia,
         sidebar_pets: *SidebarPets,
         tab_context_menu: *gio.MenuModel,
@@ -427,6 +451,9 @@ pub const Window = extern struct {
             config.@"gtk-tabs-sidebar-pets" orelse "ghost,duck,crab",
         );
         priv.media_enabled = config.@"gtk-tabs-sidebar-media";
+        priv.explorer_width = clampExplorerWidth(
+            @intCast(@min(config.@"gtk-file-explorer-width", 10_000)),
+        );
         {
             const saved = sidebar_state.load(Application.default().allocator());
             if (saved.width) |v| priv.sidebar_width = clampSidebarWidth(v);
@@ -437,6 +464,8 @@ pub const Window = extern struct {
             if (saved.show_paths) |v| priv.sidebar_show_paths = v;
             if (saved.pets) |v| priv.pets_mask = v;
             if (saved.media) |v| priv.media_enabled = v;
+            if (saved.explorer_open) |v| priv.explorer_open = v;
+            if (saved.explorer_width) |v| priv.explorer_width = clampExplorerWidth(v);
         }
 
         // Sidebar extras: pets and the media card.
@@ -554,6 +583,12 @@ pub const Window = extern struct {
                 actionSidebarMedia,
                 null,
                 glib.Variant.newBoolean(@intFromBool(self.private().media_enabled)),
+            ),
+            .initStateful(
+                "toggle-file-explorer",
+                actionToggleFileExplorer,
+                null,
+                glib.Variant.newBoolean(@intFromBool(self.private().explorer_open)),
             ),
             .init("toggle-pin-tab", actionTogglePinTab, null),
             .init("set-tab-group", actionSetTabGroup, s_variant_type),
@@ -1372,20 +1407,38 @@ pub const Window = extern struct {
         const priv = self.private();
         const right = self.sidebarOnRight();
 
-        // Order the layout children: [sidebar][handle][content] on the
-        // left, [content][handle][sidebar] on the right.
+        // Order the layout children. Tabs left (or horizontal):
+        // [sidebar][handle][content][explorer handle][explorer]. Tabs right:
+        // the mirror image, so the explorer is always opposite the tabs.
         const layout = priv.sidebar_layout;
         const sidebar = priv.sidebar_revealer.as(gtk.Widget);
         const handle = priv.sidebar_handle.as(gtk.Widget);
         const content = priv.sidebar_content.as(gtk.Widget);
-        if (right) {
-            layout.reorderChildAfter(content, null);
-            layout.reorderChildAfter(handle, content);
-            layout.reorderChildAfter(sidebar, handle);
-        } else {
-            layout.reorderChildAfter(sidebar, null);
-            layout.reorderChildAfter(handle, sidebar);
-            layout.reorderChildAfter(content, handle);
+        const ex_handle = priv.explorer_handle.as(gtk.Widget);
+        const explorer = priv.explorer_clip.as(gtk.Widget);
+        const order: [5]*gtk.Widget = if (right)
+            .{ explorer, ex_handle, content, handle, sidebar }
+        else
+            .{ sidebar, handle, content, ex_handle, explorer };
+        var prev: ?*gtk.Widget = null;
+        for (order) |child| {
+            layout.reorderChildAfter(child, prev);
+            prev = child;
+        }
+
+        // Explorer: size, side, theme, open state.
+        {
+            const ew = priv.file_explorer.as(gtk.Widget);
+            explorer.setSizeRequest(priv.explorer_width, -1);
+            toggleWidgetCssClass(ew, "left", right);
+            toggleWidgetCssClass(ew, "right", !right);
+            inline for (@typeInfo(SidebarTheme).@"enum".fields) |field| {
+                toggleWidgetCssClass(ew, "theme-" ++ field.name, @intFromEnum(priv.sidebar_theme) == field.value);
+            }
+            const a = priv.sidebar_accent;
+            priv.file_explorer.setStyle(priv.sidebar_theme != .paper, .{ a.r, a.g, a.b });
+            priv.file_explorer.setOpen(self.getExplorerVisible());
+            self.as(gobject.Object).notifyByPspec(properties.@"explorer-visible".impl.param_spec);
         }
 
         // Width depends on the mode. Hidden keeps the last width so the
@@ -1462,6 +1515,8 @@ pub const Window = extern struct {
             .show_paths = priv.sidebar_show_paths,
             .pets = priv.pets_mask,
             .media = priv.media_enabled,
+            .explorer_open = priv.explorer_open,
+            .explorer_width = priv.explorer_width,
         });
     }
 
@@ -2058,14 +2113,95 @@ pub const Window = extern struct {
     /// Position the drag guide line at the pending sidebar edge.
     fn showSidebarGuide(self: *Self) void {
         const priv = self.private();
-        const guide = priv.sidebar_guide.as(gtk.Widget);
         const handle_width = priv.sidebar_handle.as(gtk.Widget).getWidth();
         const x: c_int = if (self.sidebarOnRight())
             priv.sidebar_layout.as(gtk.Widget).getWidth() - priv.sidebar_width - handle_width
         else
             priv.sidebar_width;
+        self.showGuideAt(x);
+    }
+
+    fn showGuideAt(self: *Self, x: c_int) void {
+        const guide = self.private().sidebar_guide.as(gtk.Widget);
         guide.setMarginStart(@max(0, x));
         guide.setVisible(1);
+    }
+
+    //---------------------------------------------------------------
+    // Document explorer panel
+
+    const explorer_min_width: c_int = 200;
+    const explorer_max_width: c_int = 900;
+
+    fn clampExplorerWidth(width: c_int) c_int {
+        return std.math.clamp(width, explorer_min_width, explorer_max_width);
+    }
+
+    fn getExplorerVisible(self: *Self) bool {
+        const priv = self.private();
+        return priv.explorer_open and !priv.quick_terminal;
+    }
+
+    pub fn toggleFileExplorer(self: *Self) void {
+        const priv = self.private();
+        priv.explorer_open = !priv.explorer_open;
+        if (self.as(gio.ActionMap).lookupAction("toggle-file-explorer")) |action| {
+            if (gobject.ext.cast(gio.SimpleAction, action)) |simple| {
+                simple.setState(glib.Variant.newBoolean(@intFromBool(priv.explorer_open)));
+            }
+        }
+        self.syncSidebar();
+        self.saveSidebarState();
+    }
+
+    fn actionToggleFileExplorer(_: *gio.SimpleAction, _: ?*glib.Variant, self: *Self) callconv(.c) void {
+        self.toggleFileExplorer();
+        // Give the terminal focus back when closing from the panel button.
+        if (!self.private().explorer_open) if (self.getActiveSurface()) |s| s.grabFocus();
+    }
+
+    /// Pointer x of a drag on `handle`, in sidebar_layout coordinates.
+    fn dragLayoutX(self: *Self, gesture: *gtk.GestureDrag, handle: *gtk.Widget) ?f64 {
+        var hx: f64 = 0;
+        var hy: f64 = 0;
+        if (gesture.as(gtk.Gesture).getPoint(null, &hx, &hy) == 0) return null;
+        var lx: f64 = 0;
+        var ly: f64 = 0;
+        if (handle.translateCoordinates(self.private().sidebar_layout.as(gtk.Widget), hx, hy, &lx, &ly) == 0) return null;
+        return lx;
+    }
+
+    fn explorerDragBegin(_: *gtk.GestureDrag, x: f64, _: f64, self: *Self) callconv(.c) void {
+        self.private().explorer_drag_grab_x = x;
+    }
+
+    fn explorerDragUpdate(gesture: *gtk.GestureDrag, _: f64, _: f64, self: *Self) callconv(.c) void {
+        const priv = self.private();
+        const handle = priv.explorer_handle.as(gtk.Widget);
+        const lx = self.dragLayoutX(gesture, handle) orelse return;
+        const handle_left = lx - priv.explorer_drag_grab_x;
+        const handle_width: f64 = @floatFromInt(handle.getWidth());
+        const layout_width: f64 = @floatFromInt(priv.sidebar_layout.as(gtk.Widget).getWidth());
+
+        // Explorer is right of its handle normally, left of it when the
+        // tabs are on the right.
+        const on_left = self.sidebarOnRight();
+        const width: f64 = if (on_left) handle_left else layout_width - handle_left - handle_width;
+        priv.explorer_width = clampExplorerWidth(@intFromFloat(@round(width)));
+
+        const guide_x: c_int = if (on_left)
+            priv.explorer_width
+        else
+            @as(c_int, @intFromFloat(layout_width)) - priv.explorer_width - @as(c_int, @intFromFloat(handle_width));
+        self.showGuideAt(guide_x);
+    }
+
+    fn explorerDragEnd(_: *gtk.GestureDrag, _: f64, _: f64, self: *Self) callconv(.c) void {
+        const priv = self.private();
+        priv.sidebar_guide.as(gtk.Widget).setVisible(0);
+        // Resize the terminal once, now that the drag is done.
+        priv.explorer_clip.as(gtk.Widget).setSizeRequest(priv.explorer_width, -1);
+        self.saveSidebarState();
     }
 
     fn sidebarDragEnd(
@@ -3398,6 +3534,7 @@ pub const Window = extern struct {
             gobject.ext.ensureType(TabSidebarRow);
             gobject.ext.ensureType(SidebarMedia);
             gobject.ext.ensureType(SidebarPets);
+            gobject.ext.ensureType(FileExplorer);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
@@ -3419,6 +3556,7 @@ pub const Window = extern struct {
                 properties.@"tabs-wide".impl,
                 properties.@"sidebar-visible".impl,
                 properties.@"sidebar-compact".impl,
+                properties.@"explorer-visible".impl,
                 properties.@"sidebar-resizable".impl,
                 properties.@"toolbar-style".impl,
                 properties.@"titlebar-style".impl,
@@ -3438,6 +3576,9 @@ pub const Window = extern struct {
             class.bindTemplateChildPrivate("sidebar_guide", .{});
             class.bindTemplateChildPrivate("sidebar_list", .{});
             class.bindTemplateChildPrivate("sidebar_clip", .{});
+            class.bindTemplateChildPrivate("explorer_handle", .{});
+            class.bindTemplateChildPrivate("explorer_clip", .{});
+            class.bindTemplateChildPrivate("file_explorer", .{});
             class.bindTemplateChildPrivate("sidebar_media", .{});
             class.bindTemplateChildPrivate("sidebar_pets", .{});
             class.bindTemplateChildPrivate("tab_context_menu", .{});
@@ -3447,6 +3588,9 @@ pub const Window = extern struct {
             class.bindTemplateCallback("sidebar_drag_begin", &sidebarDragBegin);
             class.bindTemplateCallback("sidebar_drag_update", &sidebarDragUpdate);
             class.bindTemplateCallback("sidebar_drag_end", &sidebarDragEnd);
+            class.bindTemplateCallback("explorer_drag_begin", &explorerDragBegin);
+            class.bindTemplateCallback("explorer_drag_update", &explorerDragUpdate);
+            class.bindTemplateCallback("explorer_drag_end", &explorerDragEnd);
             class.bindTemplateCallback("page_reordered", &tabViewPageReordered);
             class.bindTemplateCallback("realize", &windowRealize);
             class.bindTemplateCallback("new_tab", &btnNewTab);

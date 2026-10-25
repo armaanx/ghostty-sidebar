@@ -31,6 +31,8 @@ pub const State = struct {
     /// Bit mask over pet_sprites.pets.
     pets: ?u32 = null,
     media: ?bool = null,
+    explorer_open: ?bool = null,
+    explorer_width: ?c_int = null,
 };
 
 const max_file_size = 4096;
@@ -80,6 +82,11 @@ pub fn load(alloc: Allocator) State {
         } else if (std.mem.eql(u8, key, "media")) {
             if (std.mem.eql(u8, value, "true")) result.media = true;
             if (std.mem.eql(u8, value, "false")) result.media = false;
+        } else if (std.mem.eql(u8, key, "explorer-open")) {
+            if (std.mem.eql(u8, value, "true")) result.explorer_open = true;
+            if (std.mem.eql(u8, value, "false")) result.explorer_open = false;
+        } else if (std.mem.eql(u8, key, "explorer-width")) {
+            result.explorer_width = std.fmt.parseInt(c_int, value, 10) catch null;
         }
     }
 
@@ -113,6 +120,8 @@ fn saveImpl(alloc: Allocator, state: State) !void {
         try w.print("pets = {s}\n", .{sidebar_pets.listFromMask(mask, &pbuf)});
     }
     if (state.media) |v| try w.print("media = {}\n", .{v});
+    if (state.explorer_open) |v| try w.print("explorer-open = {}\n", .{v});
+    if (state.explorer_width) |v| try w.print("explorer-width = {d}\n", .{v});
 
     const tmp = try std.fmt.allocPrint(alloc, "{s}.tmp", .{p});
     defer alloc.free(tmp);

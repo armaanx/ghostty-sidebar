@@ -5747,6 +5747,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .toggle_file_explorer => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_file_explorer,
+            {},
+        ),
+
         .cycle_tab_sidebar => return try self.rt_app.performAction(
             .{ .surface = self },
             .cycle_tab_sidebar,

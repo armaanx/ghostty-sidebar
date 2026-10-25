@@ -576,6 +576,11 @@ pub const Action = union(enum) {
     /// Only implemented on GTK.
     cycle_tab_sidebar,
 
+    /// Show or hide the document explorer panel: a tree of the active
+    /// tab's working directory showing Markdown, PDF and HTML files, with
+    /// an in-app Markdown preview. Only implemented on GTK.
+    toggle_file_explorer,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1391,6 +1396,7 @@ pub const Action = union(enum) {
             .move_tab,
             .toggle_tab_overview,
             .cycle_tab_sidebar,
+            .toggle_file_explorer,
             .new_split,
             .goto_split,
             .goto_window,

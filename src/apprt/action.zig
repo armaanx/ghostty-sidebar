@@ -347,6 +347,9 @@ pub const Action = union(Key) {
     /// hidden. Only has an effect when tabs are shown in a sidebar.
     cycle_tab_sidebar,
 
+    /// Show or hide the document explorer panel.
+    toggle_file_explorer,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -415,6 +418,7 @@ pub const Action = union(Key) {
         readonly,
         copy_title_to_clipboard,
         cycle_tab_sidebar,
+        toggle_file_explorer,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
