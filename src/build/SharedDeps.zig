@@ -576,6 +576,8 @@ fn addGtkNg(
             .{ "gobject", "gobject2" },
             .{ "gtk", "gtk4" },
             .{ "xlib", "xlib2" },
+            // ghostty-sidebar fork: geometry for custom snapshots.
+            .{ "graphene", "graphene1" },
         };
         inline for (gobject_imports) |import| {
             const name, const module = import;

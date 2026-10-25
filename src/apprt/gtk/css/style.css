@@ -627,48 +627,93 @@ window {
 }
 
 /*
- * Now-playing media card (MPRIS / Spotify): one compact row.
+ * Now-playing media card (MPRIS / Spotify): blurred album art behind a
+ * floating cover and controls.
  */
 .sidebar-media {
-  margin: 4px 8px 4px 8px;
-  padding: 10px 8px 6px 8px;
-  border-radius: 12px;
-  background-color: var(--sb-badge);
-  box-shadow: inset 0 0 0 1px var(--sb-border);
+  margin: 6px 10px 6px 10px;
 }
 
-.ghostty-tab-sidebar.glass .sidebar-media {
-  background-color: transparent;
-  background-image: linear-gradient(180deg, var(--sb-glass-hi), var(--sb-glass-lo));
+.media-card {
+  border-radius: 16px;
+  background-image: linear-gradient(160deg,
+    color-mix(in srgb, var(--sb-accent) 30%, var(--sb-badge)),
+    var(--sb-badge));
   box-shadow:
-    inset 0 0 0 1px var(--sb-glass-edge),
-    inset 0 1px 0 var(--sb-glass-shine);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+    0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.media-backdrop {
+  opacity: 0.85;
+}
+
+.media-content {
+  padding: 16px 12px 14px 12px;
+  /* Scrim so controls stay readable over bright covers. */
+  background-image: linear-gradient(180deg, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.5));
+}
+
+.ghostty-tab-sidebar.theme-paper .media-content {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.55));
 }
 
 .media-art {
-  min-width: 88px;
-  min-height: 88px;
-  border-radius: 10px;
-  background-color: var(--sb-selected);
-  color: var(--sb-muted);
+  min-width: 104px;
+  min-height: 104px;
+  border-radius: 12px;
+  background-color: rgba(0, 0, 0, 0.25);
+  color: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+  transition: transform 180ms ease-out, filter 240ms ease-out;
+}
+
+.media-art:hover {
+  transform: scale(1.04);
+}
+
+.sidebar-media.paused .media-art {
+  filter: saturate(0.55) brightness(0.8);
 }
 
 .media-button {
-  min-width: 30px;
-  min-height: 30px;
+  min-width: 34px;
+  min-height: 34px;
   padding: 0;
-  color: var(--sb-fg);
+  color: #f4f4f6;
+  background-color: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition: background-color 120ms ease-out, transform 120ms ease-out;
+}
+
+.media-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.media-button:active {
+  transform: scale(0.92);
 }
 
 .media-play {
-  background-color: var(--sb-accent);
+  min-width: 44px;
+  min-height: 44px;
   color: #101014;
+  background-color: var(--sb-accent);
+  box-shadow:
+    0 0 16px color-mix(in srgb, var(--sb-accent) 55%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 .media-play:hover {
   background-color: color-mix(in srgb, var(--sb-accent) 85%, white);
 }
 
+.ghostty-tab-sidebar.theme-paper .media-button:not(.media-play) {
+  color: #1f1f23;
+  background-color: rgba(0, 0, 0, 0.07);
+}
 
 /*
  * Document explorer panel (toggle_file_explorer). Shares the sidebar

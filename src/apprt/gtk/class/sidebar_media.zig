@@ -9,6 +9,7 @@ const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
+const graphene = @import("graphene");
 
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
@@ -50,12 +51,18 @@ pub const SidebarMedia = extern struct {
         art: *gtk.Image,
         art_frame: *adw.Bin,
         play_button: *gtk.Button,
+        card: *gtk.Overlay,
+        content: *gtk.Box,
+        backdrop: *MediaBackdrop,
 
         pub var offset: c_int = 0;
     };
 
     fn init(self: *Self, _: *Class) callconv(.c) void {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
+        // The card takes the content's size; the backdrop just fills it.
+        const priv = self.private();
+        priv.card.setMeasureOverlay(priv.content.as(gtk.Widget), 1);
     }
 
     fn alloc() std.mem.Allocator {
@@ -179,6 +186,10 @@ pub const SidebarMedia = extern struct {
         priv.play_button.setIconName(
             if (priv.playing) "media-playback-pause-symbolic" else "media-playback-start-symbolic",
         );
+        if (priv.playing)
+            self.as(gtk.Widget).removeCssClass("paused")
+        else
+            self.as(gtk.Widget).addCssClass("paused");
 
         const meta = proxy.getCachedProperty("Metadata") orelse {
             priv.has_track = false;
@@ -236,6 +247,7 @@ pub const SidebarMedia = extern struct {
     fn loadArt(self: *Self) void {
         const priv = self.private();
         priv.art.setFromIconName("audio-x-generic-symbolic");
+        priv.backdrop.setTexture(null);
         const url = priv.art_url orelse return;
         if (!std.mem.startsWith(u8, url, "https://") and
             !std.mem.startsWith(u8, url, "http://") and
@@ -276,6 +288,7 @@ pub const SidebarMedia = extern struct {
         };
         defer texture.unref();
         self.private().art.setFromPaintable(texture.as(gdk.Paintable));
+        self.private().backdrop.setTexture(texture);
     }
 
     //---------------------------------------------------------------
@@ -328,6 +341,7 @@ pub const SidebarMedia = extern struct {
         pub const Instance = Self;
 
         fn init(class: *Class) callconv(.c) void {
+            gobject.ext.ensureType(MediaBackdrop);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
@@ -340,6 +354,9 @@ pub const SidebarMedia = extern struct {
             class.bindTemplateChildPrivate("art", .{});
             class.bindTemplateChildPrivate("art_frame", .{});
             class.bindTemplateChildPrivate("play_button", .{});
+            class.bindTemplateChildPrivate("card", .{});
+            class.bindTemplateChildPrivate("content", .{});
+            class.bindTemplateChildPrivate("backdrop", .{});
 
             class.bindTemplateCallback("previous_clicked", &previousClicked);
             class.bindTemplateCallback("play_pause_clicked", &playPauseClicked);
@@ -352,5 +369,97 @@ pub const SidebarMedia = extern struct {
         pub const as = C.Class.as;
         pub const bindTemplateChildPrivate = C.Class.bindTemplateChildPrivate;
         pub const bindTemplateCallback = C.Class.bindTemplateCallback;
+    };
+};
+
+/// Blurred, cover-fitted copy of the album art behind the card. Requests no
+/// size of its own, so the 640px Spotify art never grows the card.
+pub const MediaBackdrop = extern struct {
+    const Self = @This();
+    parent_instance: Parent,
+    pub const Parent = gtk.Widget;
+    pub const getGObjectType = gobject.ext.defineClass(Self, .{
+        .name = "GhosttyMediaBackdrop",
+        .classInit = &Class.init,
+        .parent_class = &Class.parent,
+        .private = .{ .Type = Private, .offset = &Private.offset },
+    });
+
+    const Private = struct {
+        texture: ?*gdk.Texture = null,
+        pub var offset: c_int = 0;
+    };
+
+    const blur_radius = 28;
+
+    pub fn setTexture(self: *Self, texture: ?*gdk.Texture) void {
+        const priv = self.private();
+        if (priv.texture) |t| t.unref();
+        priv.texture = if (texture) |t| @ptrCast(t.as(gobject.Object).ref()) else null;
+        self.as(gtk.Widget).queueDraw();
+    }
+
+    fn measure(
+        _: *Self,
+        _: gtk.Orientation,
+        _: c_int,
+        minimum: ?*c_int,
+        natural: ?*c_int,
+        min_baseline: ?*c_int,
+        nat_baseline: ?*c_int,
+    ) callconv(.c) void {
+        if (minimum) |m| m.* = 0;
+        if (natural) |n| n.* = 0;
+        if (min_baseline) |b| b.* = -1;
+        if (nat_baseline) |b| b.* = -1;
+    }
+
+    fn snapshot(self: *Self, snap: *gtk.Snapshot) callconv(.c) void {
+        const texture = self.private().texture orelse return;
+        const widget = self.as(gtk.Widget);
+        const w: f32 = @floatFromInt(widget.getWidth());
+        const h: f32 = @floatFromInt(widget.getHeight());
+        if (w <= 0 or h <= 0) return;
+        const tw: f32 = @floatFromInt(texture.getWidth());
+        const th: f32 = @floatFromInt(texture.getHeight());
+        if (tw <= 0 or th <= 0) return;
+
+        // Cover-fit, slightly oversized so the blur has no soft edges.
+        const s = @max(w / tw, h / th) * 1.25;
+        const dw = tw * s;
+        const dh = th * s;
+        var clip: graphene.Rect = undefined;
+        _ = clip.init(0, 0, w, h);
+        var dest: graphene.Rect = undefined;
+        _ = dest.init((w - dw) / 2, (h - dh) / 2, dw, dh);
+
+        snap.pushClip(&clip);
+        snap.pushBlur(blur_radius);
+        snap.appendScaledTexture(texture, .linear, &dest);
+        snap.pop();
+        snap.pop();
+    }
+
+    fn finalize(self: *Self) callconv(.c) void {
+        if (self.private().texture) |t| t.unref();
+        gobject.Object.virtual_methods.finalize.call(Class.parent, self.as(Parent));
+    }
+
+    const C = Common(Self, Private);
+    pub const as = C.as;
+    const private = C.private;
+
+    pub const Class = extern struct {
+        parent_class: Parent.Class,
+        var parent: *Parent.Class = undefined;
+        pub const Instance = Self;
+
+        fn init(class: *Class) callconv(.c) void {
+            gtk.Widget.virtual_methods.measure.implement(class, &measure);
+            gtk.Widget.virtual_methods.snapshot.implement(class, &snapshot);
+            gobject.Object.virtual_methods.finalize.implement(class, &finalize);
+        }
+
+        pub const as = C.Class.as;
     };
 };
