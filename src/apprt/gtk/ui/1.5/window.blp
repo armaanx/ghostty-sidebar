@@ -65,6 +65,14 @@ template $GhosttyWindow: Adw.ApplicationWindow {
         [end]
         Gtk.Box {
           Gtk.ToggleButton {
+            icon-name: "sidebar-show-right-symbolic";
+            tooltip-text: _("File Explorer (Ctrl+Shift+M)");
+            action-name: "win.toggle-file-explorer";
+            can-focus: false;
+            focus-on-click: false;
+          }
+
+          Gtk.ToggleButton {
             icon-name: "view-grid-symbolic";
             tooltip-text: _("View Open Tabs");
             active: bind tab_overview.open bidirectional;
@@ -117,6 +125,18 @@ template $GhosttyWindow: Adw.ApplicationWindow {
         Gtk.Box {
           orientation: horizontal;
           visible: bind $titlebar_style_is_tabs(template.titlebar-style) as <bool>;
+
+          Gtk.ToggleButton {
+            styles [
+              "flat",
+            ]
+
+            icon-name: "sidebar-show-right-symbolic";
+            tooltip-text: _("File Explorer (Ctrl+Shift+M)");
+            action-name: "win.toggle-file-explorer";
+            can-focus: false;
+            focus-on-click: false;
+          }
 
           Gtk.ToggleButton {
             styles [
