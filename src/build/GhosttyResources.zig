@@ -114,6 +114,17 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
         }
     }
 
+    // Markdown preview page for the GTK file explorer (ghostty-sidebar fork)
+    {
+        const install_step = b.addInstallDirectory(.{
+            .source_dir = b.path("src/markdown-preview"),
+            .install_dir = .{ .custom = "share" },
+            .install_subdir = b.pathJoin(&.{ "ghostty", "markdown-preview" }),
+            .exclude_extensions = &.{".md"},
+        });
+        try steps.append(b.allocator, &install_step.step);
+    }
+
     // Shell-integration
     {
         const install_step = b.addInstallDirectory(.{

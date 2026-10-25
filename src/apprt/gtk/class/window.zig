@@ -1435,8 +1435,7 @@ pub const Window = extern struct {
             inline for (@typeInfo(SidebarTheme).@"enum".fields) |field| {
                 toggleWidgetCssClass(ew, "theme-" ++ field.name, @intFromEnum(priv.sidebar_theme) == field.value);
             }
-            const a = priv.sidebar_accent;
-            priv.file_explorer.setStyle(priv.sidebar_theme != .paper, .{ a.r, a.g, a.b });
+            priv.file_explorer.setStyle(self.explorerPalette());
             priv.file_explorer.setOpen(self.getExplorerVisible());
             self.as(gobject.Object).notifyByPspec(properties.@"explorer-visible".impl.param_spec);
         }
@@ -2135,6 +2134,35 @@ pub const Window = extern struct {
 
     fn clampExplorerWidth(width: c_int) c_int {
         return std.math.clamp(width, explorer_min_width, explorer_max_width);
+    }
+
+    /// Preview colors matching the sidebar theme (see style.css), plus the
+    /// terminal font for code.
+    fn explorerPalette(self: *Self) FileExplorer.Palette {
+        const priv = self.private();
+        const a = priv.sidebar_accent;
+        const theme: SidebarTheme = switch (priv.sidebar_theme) {
+            .auto => if (adw.StyleManager.getDefault().getDark() != 0) .graphite else .paper,
+            else => |t| t,
+        };
+        var p: FileExplorer.Palette = switch (theme) {
+            .auto, .graphite => .{ .fg = "#e6e6e9", .muted = "#8c8c95", .border = "#2b2b30", .code_bg = "#29292e" },
+            .charcoal => .{ .fg = "#e8e8eb", .muted = "#84848c", .border = "#222225", .code_bg = "#202023" },
+            .midnight => .{ .fg = "#ededed", .muted = "#7a7a7a", .border = "#1e1e1e", .code_bg = "#141414" },
+            .slate => .{ .fg = "#e3e8f0", .muted = "#8590a3", .border = "#2c3340", .code_bg = "#252b36" },
+            .nord => .{ .fg = "#eceff4", .muted = "#9aa3b5", .border = "#434c5e", .code_bg = "#3b4252" },
+            .mocha => .{ .fg = "#cdd6f4", .muted = "#9399b2", .border = "#313244", .code_bg = "#2a2a3c" },
+            .paper => .{ .dark = false, .fg = "#1f1f23", .muted = "#6b6b75", .border = "#d8d8de", .code_bg = "#e7e7eb" },
+        };
+        p.accent = .{ a.r, a.g, a.b };
+        if (priv.config) |c| {
+            const fonts = c.get().@"font-family".list.items;
+            if (fonts.len > 0) {
+                const n = @min(fonts[0].len, p.code_font.len - 1);
+                @memcpy(p.code_font[0..n], fonts[0][0..n]);
+            }
+        }
+        return p;
     }
 
     fn getExplorerVisible(self: *Self) bool {

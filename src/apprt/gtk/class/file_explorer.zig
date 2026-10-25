@@ -1,7 +1,10 @@
 //! Document explorer panel shown beside the terminal. Lists the active
 //! tab's working directory as a tree, filtered to documents (Markdown, PDF,
-//! HTML). Markdown files preview inside the panel; other files open in the
-//! default app.
+//! HTML). Markdown files preview inside the panel in a WebKitGTK view
+//! (src/markdown-preview: GFM, footnotes, math, code highlighting, Mermaid);
+//! other files open in the default app. The web view is created on the
+//! first preview and destroyed when the panel closes, so it only uses
+//! memory while you're previewing.
 //!
 //! Performance: folders are read asynchronously by GtkDirectoryList only
 //! when expanded, rows are recycled by GtkListView, and changes on disk
@@ -15,7 +18,9 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const Common = @import("../class.zig").Common;
-const md_render = @import("../md_render.zig");
+const gdk = @import("gdk");
+const webkit = @import("../webkit.zig");
+const state = &@import("../../../global.zig").state;
 
 const log = std.log.scoped(.gtk_ghostty_file_explorer);
 
@@ -88,7 +93,7 @@ pub const FileExplorer = extern struct {
         /// Root currently shown (c_allocator-owned).
         shown_root: ?[:0]u8 = null,
         open: bool = false,
-        md_opts: md_render.Options = .{},
+        palette: Palette = .{},
 
         filter: *gtk.CustomFilter = undefined,
         sorter: *gtk.CustomSorter = undefined,
@@ -99,14 +104,45 @@ pub const FileExplorer = extern struct {
         list_view: *gtk.ListView = undefined,
         root_label: *gtk.Label = undefined,
         preview_title: *gtk.Label = undefined,
-        text_view: *gtk.TextView = undefined,
-        preview_scroller: *gtk.ScrolledWindow = undefined,
+        preview_host: *adw.Bin = undefined,
+
+        /// Web view for the Markdown preview (strong ref), created lazily.
+        web_view: ?*gtk.Widget = null,
+        /// preview.html finished loading; render calls can run.
+        web_ready: bool = false,
+        /// A render is waiting for the page to load.
+        render_pending: bool = false,
+        /// Keep the scroll position on the next render (live reload).
+        keep_scroll: bool = false,
+
+        /// Watches the previewed file for live reload.
+        monitor: ?*gio.FileMonitor = null,
+        reload_source: ?c_uint = null,
 
         /// File being previewed and its contents (for re-rendering).
         preview_file: ?*gio.File = null,
         preview_text: ?[]u8 = null,
 
         pub var offset: c_int = 0;
+    };
+
+    /// Colors and fonts for the preview, from the sidebar theme.
+    pub const Palette = struct {
+        dark: bool = true,
+        fg: [:0]const u8 = "#e6e6e9",
+        muted: [:0]const u8 = "#8c8c95",
+        border: [:0]const u8 = "#2b2b30",
+        code_bg: [:0]const u8 = "#29292e",
+        accent: [3]u8 = .{ 0x4e, 0xa1, 0xff },
+        code_font: [64:0]u8 = .{0} ** 64,
+
+        fn eql(a: Palette, b: Palette) bool {
+            return a.dark == b.dark and
+                std.mem.eql(u8, a.fg, b.fg) and
+                std.mem.eql(u8, a.muted, b.muted) and
+                std.mem.eql(u8, &a.accent, &b.accent) and
+                std.mem.eql(u8, &a.code_font, &b.code_font);
+        }
     };
 
     fn alloc() std.mem.Allocator {
@@ -197,22 +233,11 @@ pub const FileExplorer = extern struct {
         pheader.append(ext_btn.as(gtk.Widget));
         preview.append(pheader.as(gtk.Widget));
 
-        const text_view = gtk.TextView.new();
-        text_view.setEditable(0);
-        text_view.setCursorVisible(0);
-        text_view.setWrapMode(.word_char);
-        text_view.setLeftMargin(16);
-        text_view.setRightMargin(16);
-        text_view.setTopMargin(12);
-        text_view.setBottomMargin(24);
-        text_view.as(gtk.Widget).addCssClass("markdown-preview");
-        priv.text_view = text_view;
-        const pscroller = gtk.ScrolledWindow.new();
-        pscroller.setPolicy(.never, .automatic);
-        pscroller.setChild(text_view.as(gtk.Widget));
-        pscroller.as(gtk.Widget).setVexpand(1);
-        priv.preview_scroller = pscroller;
-        preview.append(pscroller.as(gtk.Widget));
+        const host = adw.Bin.new();
+        host.as(gtk.Widget).setVexpand(1);
+        host.as(gtk.Widget).addCssClass("markdown-preview");
+        priv.preview_host = host;
+        preview.append(host.as(gtk.Widget));
         _ = stack.addNamed(preview.as(gtk.Widget), "preview");
 
         box.append(stack.as(gtk.Widget));
@@ -239,15 +264,28 @@ pub const FileExplorer = extern struct {
         const priv = self.private();
         if (priv.open == open) return;
         priv.open = open;
-        if (open) self.applyRoot();
+        if (open) {
+            self.applyRoot();
+            if (priv.preview_file) |f| if (std.mem.eql(u8, std.mem.span(priv.stack.getVisibleChildName() orelse ""), "preview")) {
+                self.ensureWebView();
+                self.loadPreview(f, true);
+            };
+        } else {
+            // Free the web engine while the panel is closed.
+            self.stopMonitor();
+            self.destroyWebView();
+        }
     }
 
     /// Colors used by the Markdown preview. Re-renders an open preview.
-    pub fn setStyle(self: *Self, dark: bool, accent: [3]u8) void {
+    pub fn setStyle(self: *Self, palette: Palette) void {
         const priv = self.private();
-        const changed = priv.md_opts.dark != dark or !std.mem.eql(u8, &priv.md_opts.accent, &accent);
-        priv.md_opts = .{ .dark = dark, .accent = accent };
-        if (changed) if (priv.preview_text) |text| self.renderPreview(text);
+        if (priv.palette.eql(palette)) return;
+        priv.palette = palette;
+        if (priv.preview_text != null) {
+            priv.keep_scroll = true;
+            self.requestRender();
+        }
     }
 
     fn getRoot(self: *Self) ?[:0]const u8 {
@@ -483,13 +521,26 @@ pub const FileExplorer = extern struct {
 
     fn showPreview(self: *Self, file: *gio.File) void {
         const priv = self.private();
-        if (priv.preview_file) |f| f.unref();
-        priv.preview_file = @ptrCast(file.as(gobject.Object).ref());
+        const same = if (priv.preview_file) |f| f.equal(file) != 0 else false;
+        if (!same) {
+            if (priv.preview_file) |f| f.unref();
+            priv.preview_file = @ptrCast(file.as(gobject.Object).ref());
+            if (priv.preview_text) |t| alloc().free(t);
+            priv.preview_text = null;
+        }
 
         const name = file.getBasename();
         defer if (name) |n| glib.free(n);
         priv.preview_title.setLabel(name orelse "");
         priv.stack.setVisibleChildName("preview");
+
+        self.ensureWebView();
+        self.startMonitor(file);
+        self.loadPreview(file, same);
+    }
+
+    fn loadPreview(self: *Self, file: *gio.File, keep_scroll: bool) void {
+        self.private().keep_scroll = keep_scroll;
         file.loadContentsAsync(null, previewLoaded, self.ref());
     }
 
@@ -515,22 +566,277 @@ pub const FileExplorer = extern struct {
         if (current.equal(file) == 0) return;
 
         if (priv.preview_text) |t| alloc().free(t);
-        priv.preview_text = alloc().dupe(u8, contents[0..len]) catch null;
-        if (priv.preview_text) |t| self.renderPreview(t);
+        const text = contents[0..@min(len, max_preview_bytes)];
+        priv.preview_text = alloc().dupe(u8, if (std.unicode.utf8ValidateSlice(text))
+            text
+        else
+            "> [!CAUTION]\n> This file isn't valid UTF-8 text.\n") catch null;
+        self.requestRender();
     }
 
-    fn renderPreview(self: *Self, text: []const u8) void {
+    //---------------------------------------------------------------
+    // Web view
+
+    var sandbox_configured = false;
+
+    fn previewPageUri(buf: []u8) ?[:0]const u8 {
+        const res = state.resources_dir.app() orelse return null;
+        var pbuf: [std.fs.max_path_bytes]u8 = undefined;
+        const path = std.fmt.bufPrintZ(&pbuf, "{s}/markdown-preview/preview.html", .{res}) catch return null;
+        const file = gio.File.newForPath(path.ptr);
+        defer file.unref();
+        const uri = file.getUri();
+        defer glib.free(uri);
+        return std.fmt.bufPrintZ(buf, "{s}", .{std.mem.span(uri)}) catch null;
+    }
+
+    fn ensureWebView(self: *Self) void {
         const priv = self.private();
-        const buffer = gtk.TextBuffer.new(null);
-        defer buffer.unref();
-        if (std.unicode.utf8ValidateSlice(text)) {
-            md_render.render(buffer, text, priv.md_opts);
-        } else {
-            const msg = "This file isn't valid UTF-8 text.";
-            buffer.setText(msg, msg.len);
+        if (priv.web_view != null) return;
+
+        var ubuf: [std.fs.max_path_bytes + 16]u8 = undefined;
+        const uri = previewPageUri(&ubuf) orelse {
+            const label = gtk.Label.new("Markdown preview files are missing (share/ghostty/markdown-preview).");
+            label.setWrap(1);
+            priv.preview_host.setChild(label.as(gtk.Widget));
+            return;
+        };
+
+        // The web process is sandboxed (home is readable by default); also
+        // allow our page's files and /tmp.
+        // This must happen before the first web process starts.
+        if (!sandbox_configured) {
+            sandbox_configured = true;
+            const ctx = webkit.webkit_web_context_get_default();
+            if (state.resources_dir.app()) |res| {
+                var rbuf: [std.fs.max_path_bytes]u8 = undefined;
+                if (std.fmt.bufPrintZ(&rbuf, "{s}", .{res})) |r| {
+                    webkit.webkit_web_context_add_path_to_sandbox(ctx, r.ptr, 1);
+                } else |_| {}
+            }
+            webkit.webkit_web_context_add_path_to_sandbox(ctx, "/tmp", 1);
         }
-        priv.text_view.setBuffer(buffer);
-        priv.preview_scroller.getVadjustment().setValue(0);
+
+        const widget = webkit.webkit_web_view_new();
+        _ = widget.as(gobject.Object).refSink();
+        const view = webkit.asView(widget);
+
+        const settings = webkit.webkit_web_view_get_settings(view);
+        webkit.webkit_settings_set_allow_file_access_from_file_urls(settings, 1);
+        webkit.webkit_settings_set_javascript_can_open_windows_automatically(settings, 0);
+        webkit.webkit_settings_set_enable_html5_local_storage(settings, 0);
+        webkit.webkit_settings_set_enable_page_cache(settings, 0);
+        const debug = std.posix.getenv("GHOSTTY_PREVIEW_DEBUG") != null;
+        webkit.webkit_settings_set_enable_developer_extras(settings, @intFromBool(debug));
+        webkit.webkit_settings_set_enable_write_console_messages_to_stdout(settings, @intFromBool(debug));
+
+        const clear: gdk.RGBA = .{ .f_red = 0, .f_green = 0, .f_blue = 0, .f_alpha = 0 };
+        webkit.webkit_web_view_set_background_color(view, &clear);
+
+        const o = widget.as(gobject.Object);
+        _ = gobject.signalConnectData(o, "decide-policy", @ptrCast(&decidePolicy), self, null, .{});
+        _ = gobject.signalConnectData(o, "load-changed", @ptrCast(&loadChanged), self, null, .{});
+        _ = gobject.signalConnectData(o, "context-menu", @ptrCast(&blockContextMenu), self, null, .{});
+        _ = gobject.signalConnectData(o, "web-process-terminated", @ptrCast(&processTerminated), self, null, .{});
+
+        priv.web_view = widget;
+        priv.web_ready = false;
+        priv.preview_host.setChild(widget);
+        webkit.webkit_web_view_load_uri(view, uri.ptr);
+    }
+
+    fn destroyWebView(self: *Self) void {
+        const priv = self.private();
+        const widget = priv.web_view orelse return;
+        _ = gobject.signalHandlersDisconnectMatched(widget.as(gobject.Object), .{ .data = true }, 0, 0, null, null, self);
+        priv.preview_host.setChild(null);
+        widget.unref();
+        priv.web_view = null;
+        priv.web_ready = false;
+    }
+
+    fn loadChanged(_: *webkit.WebView, event: webkit.LoadEvent, self: *Self) callconv(.c) void {
+        if (event != .finished) return;
+        const priv = self.private();
+        priv.web_ready = true;
+        if (priv.render_pending) self.requestRender();
+    }
+
+    fn processTerminated(_: *webkit.WebView, _: c_int, self: *Self) callconv(.c) void {
+        // Recreate on the next render.
+        log.warn("markdown preview web process ended; restarting it", .{});
+        _ = glib.idleAdd(recreateIdle, self.ref());
+    }
+
+    fn recreateIdle(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+        defer self.unref();
+        self.destroyWebView();
+        if (self.private().open and self.private().preview_text != null) {
+            self.ensureWebView();
+            self.private().render_pending = true;
+        }
+        return 0;
+    }
+
+    fn blockContextMenu(_: *webkit.WebView, _: ?*anyopaque, _: ?*anyopaque, self: *Self) callconv(.c) c_int {
+        _ = self;
+        return 1;
+    }
+
+    fn requestRender(self: *Self) void {
+        const priv = self.private();
+        const text = priv.preview_text orelse return;
+        const widget = priv.web_view orelse return;
+        if (!priv.web_ready) {
+            priv.render_pending = true;
+            return;
+        }
+        priv.render_pending = false;
+
+        // Base URL for relative links and images: the file's folder.
+        var base_buf: [std.fs.max_path_bytes + 16]u8 = undefined;
+        const base: []const u8 = base: {
+            const file = priv.preview_file orelse break :base "";
+            const parent = file.getParent() orelse break :base "";
+            defer parent.unref();
+            const uri = parent.getUri();
+            defer glib.free(uri);
+            break :base std.fmt.bufPrint(&base_buf, "{s}/", .{std.mem.span(uri)}) catch "";
+        };
+
+        const p = priv.palette;
+        var accent_buf: [8]u8 = undefined;
+        const accent = std.fmt.bufPrint(&accent_buf, "#{x:0>2}{x:0>2}{x:0>2}", .{ p.accent[0], p.accent[1], p.accent[2] }) catch "#4ea1ff";
+        const opts = .{
+            .base = base,
+            .dark = p.dark,
+            .fg = p.fg,
+            .muted = p.muted,
+            .border = p.border,
+            .codeBg = p.code_bg,
+            .accent = accent,
+            .codeFont = std.mem.sliceTo(&p.code_font, 0),
+            .keepScroll = priv.keep_scroll,
+        };
+        priv.keep_scroll = false;
+
+        const script = std.fmt.allocPrint(
+            alloc(),
+            "window.ghosttyPreview.render({f},{f});",
+            .{ std.json.fmt(text, .{}), std.json.fmt(opts, .{}) },
+        ) catch return;
+        defer alloc().free(script);
+        webkit.webkit_web_view_evaluate_javascript(
+            webkit.asView(widget),
+            script.ptr,
+            @intCast(script.len),
+            null,
+            null,
+            null,
+            null,
+            null,
+        );
+    }
+
+    /// Links clicked in the preview: Markdown files preview here, everything
+    /// else opens in the default app or browser. The page never navigates.
+    fn decidePolicy(
+        _: *webkit.WebView,
+        decision: *webkit.PolicyDecision,
+        kind: webkit.PolicyDecisionType,
+        self: *Self,
+    ) callconv(.c) c_int {
+        if (kind == .response) return 0;
+        const priv = self.private();
+        const action = webkit.webkit_navigation_policy_decision_get_navigation_action(decision);
+        const nav = webkit.webkit_navigation_action_get_navigation_type(action);
+
+        // Allow only the initial load of preview.html.
+        if (!priv.web_ready and nav == .other and kind == .navigation_action) return 0;
+        webkit.webkit_policy_decision_ignore(decision);
+        if (nav != .link_clicked and kind != .new_window_action) return 1;
+
+        const request = webkit.webkit_navigation_action_get_request(action);
+        const uri = std.mem.span(webkit.webkit_uri_request_get_uri(request));
+        self.openLink(uri);
+        return 1;
+    }
+
+    fn openLink(self: *Self, uri: []const u8) void {
+        if (std.mem.startsWith(u8, uri, "file://")) {
+            // Drop any #fragment for local files.
+            const end = std.mem.indexOfScalar(u8, uri, '#') orelse uri.len;
+            var buf: [std.fs.max_path_bytes + 16]u8 = undefined;
+            const z = std.fmt.bufPrintZ(&buf, "{s}", .{uri[0..end]}) catch return;
+            const file = gio.File.newForUri(z.ptr);
+            defer file.unref();
+            const name = std.fs.path.extension(uri[0..end]);
+            const md = std.ascii.eqlIgnoreCase(name, ".md") or std.ascii.eqlIgnoreCase(name, ".markdown");
+            if (md) self.showPreview(file) else self.openExternal(file);
+            return;
+        }
+
+        var buf: [4096]u8 = undefined;
+        const z = std.fmt.bufPrintZ(&buf, "{s}", .{uri}) catch return;
+        const launcher = gtk.UriLauncher.new(z.ptr);
+        const window: ?*gtk.Window = if (self.as(gtk.Widget).getRoot()) |r| gobject.ext.cast(gtk.Window, r) else null;
+        launcher.launch(window, null, uriLaunchDone, null);
+    }
+
+    fn uriLaunchDone(source: ?*gobject.Object, result: *gio.AsyncResult, _: ?*anyopaque) callconv(.c) void {
+        const launcher = gobject.ext.cast(gtk.UriLauncher, source orelse return) orelse return;
+        defer launcher.unref();
+        var err: ?*glib.Error = null;
+        if (launcher.launchFinish(result, &err) == 0) if (err) |e| {
+            log.warn("could not open link: {s}", .{e.f_message orelse "?"});
+            e.free();
+        };
+    }
+
+    //---------------------------------------------------------------
+    // Live reload
+
+    fn startMonitor(self: *Self, file: *gio.File) void {
+        self.stopMonitor();
+        var err: ?*glib.Error = null;
+        const monitor = file.monitorFile(.{ .watch_moves = true }, null, &err) orelse {
+            if (err) |e| e.free();
+            return;
+        };
+        _ = gio.FileMonitor.signals.changed.connect(monitor, *Self, fileChanged, self, .{});
+        self.private().monitor = monitor;
+    }
+
+    fn stopMonitor(self: *Self) void {
+        const priv = self.private();
+        if (priv.reload_source) |src| _ = glib.Source.remove(src);
+        priv.reload_source = null;
+        if (priv.monitor) |m| {
+            _ = m.cancel();
+            _ = gobject.signalHandlersDisconnectMatched(m.as(gobject.Object), .{ .data = true }, 0, 0, null, null, self);
+            m.unref();
+        }
+        priv.monitor = null;
+    }
+
+    fn fileChanged(_: *gio.FileMonitor, _: *gio.File, _: ?*gio.File, event: gio.FileMonitorEvent, self: *Self) callconv(.c) void {
+        switch (event) {
+            .changes_done_hint, .created, .moved_in, .renamed => {},
+            else => return,
+        }
+        // Debounce bursts of events from one save.
+        const priv = self.private();
+        if (priv.reload_source) |src| _ = glib.Source.remove(src);
+        priv.reload_source = glib.timeoutAdd(150, reloadTimeout, self);
+    }
+
+    fn reloadTimeout(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+        const priv = self.private();
+        priv.reload_source = null;
+        if (priv.preview_file) |f| self.loadPreview(f, true);
+        return 0;
     }
 
     fn backClicked(_: *gtk.Button, self: *Self) callconv(.c) void {
@@ -550,6 +856,8 @@ pub const FileExplorer = extern struct {
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
         self.disconnectRootModel();
+        self.stopMonitor();
+        self.destroyWebView();
         if (priv.preview_file) |f| f.unref();
         priv.preview_file = null;
         gobject.Object.virtual_methods.dispose.call(Class.parent, self.as(Parent));

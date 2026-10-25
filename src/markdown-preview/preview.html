@@ -1,0 +1,28 @@
+<!doctype html>
+<html data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Only local files may run or be loaded; images may also be remote.
+         No inline scripts, no fetch/XHR, no frames. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src file:; style-src file: 'unsafe-inline'; img-src file: data: https: http:; font-src file: data:; media-src file: https:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri file:"
+    />
+    <base href="./" />
+    <link rel="stylesheet" href="vendor/katex/katex.min.css" />
+    <link id="hljs-dark" rel="stylesheet" href="vendor/hljs-dark.css" />
+    <link id="hljs-light" rel="stylesheet" href="vendor/hljs-light.css" disabled />
+    <link rel="stylesheet" href="preview.css" />
+    <script src="vendor/markdown-it.min.js"></script>
+    <script src="vendor/markdown-it-footnote.min.js"></script>
+    <script src="vendor/markdown-it-task-lists.min.js"></script>
+    <script src="vendor/katex/katex.min.js"></script>
+    <script src="vendor/texmath.js"></script>
+    <script src="vendor/purify.min.js"></script>
+    <script src="vendor/highlight.min.js"></script>
+  </head>
+  <body>
+    <article id="content" class="markdown-body"></article>
+    <script src="preview.js"></script>
+  </body>
+</html>
